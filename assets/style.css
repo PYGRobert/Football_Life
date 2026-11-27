@@ -113,7 +113,7 @@ body{
   border:1px solid var(--line);background:#f7fafb;border-radius:10px;cursor:pointer;
   font-family:inherit;text-align:left;transition:background .15s,border-color .15s}
 .cat-btn.active{border-color:var(--green);background:#eaf6f0;box-shadow:inset 0 0 0 1px var(--green)}
-.cat-btn.wide{grid-column:span 2}
+#train-cats .cat-btn:last-child{grid-column:span 2}
 .cat-name{font-size:13px;font-weight:700;color:var(--txt)}
 .cat-ico{font-size:13px;margin-right:3px}
 .cat-desc{font-size:10px;color:var(--muted);line-height:1.3}
@@ -129,18 +129,24 @@ body{
 .train-preview .warn{color:#b45309;font-weight:600}
 .train-preview .good{color:var(--green)}
 
-/* ---- 数据页 ---- */
-#radar-wrap{text-align:center}
-#data-line{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.6}
-#data-line b{color:var(--green-d)}
-#data-eff{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
-.attr-row{display:flex;align-items:center;gap:8px;margin-bottom:9px;font-size:12px}
-.attr-name{width:48px;color:var(--txt);font-weight:600}
-.attr-bar{flex:1;height:9px;background:#eef1f4;border-radius:5px;overflow:hidden}
-.attr-fill{height:100%;border-radius:5px;transition:width .5s}
-.attr-val{width:36px;text-align:right;font-weight:700;font-size:14px}
-.attr-val small{font-weight:400;color:var(--muted);font-size:10px}
-.attr-note{font-size:10px;color:var(--muted);margin:-4px 0 10px}
+/* ---- 属性页（FM 风格数值表） ---- */
+.attr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:var(--dark);
+  border-radius:12px;padding:12px 10px;margin-bottom:10px}
+.attr-summary>div{text-align:center;color:#9fb2c0;font-size:10px;letter-spacing:1px}
+.attr-summary b{display:block;color:#fff;font-size:19px;font-weight:800;margin-top:3px;letter-spacing:0}
+.attr-summary>div:last-child b{color:var(--gold)}
+.attr-note{font-size:10px;color:var(--muted);margin:0 0 10px;line-height:1.5}
+.attr-group{background:var(--dark);border-radius:12px;padding:10px 14px 6px;margin-bottom:10px}
+.attr-group h4{color:#9fb2c0;font-size:11px;letter-spacing:2px;margin:0 0 4px;font-weight:600}
+.attr-list{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+.attr-line{display:flex;justify-content:space-between;align-items:center;padding:7px 0;
+  border-bottom:1px solid rgba(255,255,255,.06)}
+.attr-label{font-size:12px;color:#c9d6df}
+.attr-num{font-size:16px;font-weight:800;line-height:1}
+.lv-poor{color:#8291a0}
+.lv-normal{color:#ffffff}
+.lv-good{color:#ffd23f}
+.lv-elite{color:#4ade80}
 
 /* ---- 表格 ---- */
 .season-table{width:100%;border-collapse:collapse;font-size:12px}
@@ -157,7 +163,7 @@ body{
 .achv-name{font-weight:700;font-size:13px;margin-top:4px}
 .achv-desc{font-size:11px;color:var(--muted);margin-top:2px}
 
-/* ---- 比赛实况层 ---- */
+/* ---- 弹层 ---- */
 .overlay{position:fixed;inset:0;background:rgba(8,15,22,.82);z-index:50;display:none;
   align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .overlay.show{display:flex}
@@ -176,6 +182,96 @@ body{
 @keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
 .panel-foot .btn{width:100%}
 #btn-again{display:none;background:var(--green);color:#fff;margin-top:8px}
+
+/* ---- 比赛逐步播放 ---- */
+.match-panel{max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px)}
+#match-hud{display:none;background:#0b141c;color:#fff;padding:9px 14px;align-items:center;
+  border-bottom:1px solid rgba(255,255,255,.08)}
+.mh-block{flex:1;text-align:center;min-width:0}
+.mh-block b{display:block;font-size:19px;font-weight:800;line-height:1.1}
+.mh-block span{display:block;font-size:9px;color:#7f939f;margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mh-center b{font-size:23px;color:var(--gold);letter-spacing:2px}
+.mh-center span{max-width:170px;margin-left:auto;margin-right:auto}
+.match-panel .panel-body{display:flex;flex-direction:column;justify-content:flex-start;
+  min-height:250px;overflow-y:auto;padding:22px 20px}
+.stage{width:100%;text-align:center;margin:auto 0;animation:stageIn .3s ease both}
+.stage.center{display:flex;flex-direction:column;align-items:center;gap:10px}
+.stage-sub{font-size:11px;color:var(--muted)}
+@keyframes stageIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.loader-text{font-size:17px;font-weight:700;color:var(--txt);display:flex;align-items:center;gap:9px}
+.minute-tag{font-size:15px;font-weight:800;color:var(--gold);letter-spacing:1px}
+.scene-text{font-size:16px;line-height:1.7;color:var(--txt);max-width:330px}
+.warn-text{color:#b45309}
+.half-badge{background:var(--dark);color:#fff;font-size:11px;padding:4px 16px;border-radius:20px;letter-spacing:3px}
+.mini-stats{font-size:11px;color:var(--muted)}
+.mini-stats b{color:var(--green-d)}
+.score-chip{font-size:24px;font-weight:900;color:var(--green-d);letter-spacing:3px}
+
+.waiting{display:inline-flex;gap:4px;align-items:center}
+.waiting i{width:5px;height:5px;border-radius:50%;background:var(--green);animation:dotPulse 1s infinite}
+.waiting i:nth-child(2){animation-delay:.15s}
+.waiting i:nth-child(3){animation-delay:.3s}
+@keyframes dotPulse{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+
+.key-stage{display:flex;justify-content:center}
+.key-moment{width:100%;max-width:330px}
+.km-minute{font-size:42px;font-weight:900;color:var(--green-d);line-height:1;letter-spacing:1px}
+.km-narr{font-size:16px;line-height:1.6;color:var(--txt);margin:10px auto 2px}
+.km-waiting{display:flex;justify-content:center;align-items:center;gap:8px;
+  font-size:11px;color:var(--muted);margin-top:12px}
+.km-outcome{margin-top:14px;padding:11px 12px;border-radius:12px;font-size:15px;font-weight:700;
+  line-height:1.5;background:#f1f5f8;color:var(--txt);animation:outcomeIn .32s ease both;
+  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px}
+@keyframes outcomeIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.km-outcome.goal{background:linear-gradient(135deg,#ffe8a3,#ffc93c);color:#3a2800;
+  box-shadow:0 0 0 2px rgba(240,165,0,.35);animation:goalPop .55s cubic-bezier(.2,1.5,.4,1) both}
+.km-outcome.assist{background:linear-gradient(135deg,#d8f3e6,#a7e3c6);color:#145c38;
+  animation:goalPop .5s cubic-bezier(.2,1.5,.4,1) both}
+.km-outcome.save{background:linear-gradient(135deg,#dbeafe,#bfdbfe);color:#1e3a8a;
+  animation:goalPop .5s cubic-bezier(.2,1.5,.4,1) both}
+.km-outcome.block{background:#e8f5ee;color:#145c38}
+.km-outcome.bad{background:#fde8e8;color:#991b1b}
+.event-badge{display:inline-block;background:rgba(0,0,0,.12);padding:2px 7px;border-radius:6px;
+  margin-right:6px;font-size:10px;letter-spacing:1px}
+@keyframes goalPop{0%{opacity:0;transform:scale(.7)}60%{transform:scale(1.06)}100%{opacity:1;transform:scale(1)}}
+.flash-goal{animation:goalGlow .8s ease}
+.flash-assist{animation:assistGlow .8s ease}
+.flash-save{animation:saveGlow .8s ease}
+@keyframes goalGlow{0%,100%{filter:none}30%{filter:drop-shadow(0 0 16px rgba(240,165,0,.85))}}
+@keyframes assistGlow{0%,100%{filter:none}30%{filter:drop-shadow(0 0 14px rgba(27,122,75,.7))}}
+@keyframes saveGlow{0%,100%{filter:none}30%{filter:drop-shadow(0 0 14px rgba(59,130,246,.75))}}
+
+.final-card{width:100%;max-width:340px;margin:0 auto}
+.result-kicker{font-size:10px;color:var(--muted);letter-spacing:1px}
+.final-score{font-size:44px;font-weight:900;color:var(--txt);line-height:1.15;letter-spacing:3px}
+.final-teams{font-size:10px;color:var(--muted);margin-bottom:10px}
+.final-teams span{opacity:.5;margin:0 3px}
+.final-card.win .final-score{color:var(--green-d)}
+.final-card.loss .final-score{color:#b91c1c}
+.final-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}
+.fg-item{background:#f4f8f6;border-radius:9px;padding:8px 2px}
+.fg-item b{display:block;font-size:18px;color:var(--green-d);line-height:1.1}
+.fg-item span{font-size:9px;color:var(--muted)}
+.fg-item.hot{background:#fff6df}
+.fg-item.hot b{color:#b45309}
+.final-note{font-size:10px;color:var(--muted);margin-top:8px}
+.final-extra{font-size:10px;color:var(--green-d);background:#eef8f2;border-radius:8px;
+  padding:7px;margin-top:8px;line-height:1.55}
+.result-sub{font-size:13px;color:var(--txt);margin-top:6px}
+.result-sub b{color:var(--gold);font-size:17px}
+
+/* 矮屏时压缩比赛结算，避免最终数据被裁切 */
+@media (max-height:720px){
+  .match-panel .panel-body{padding:16px 18px;min-height:220px}
+  .final-score{font-size:34px}
+  .final-grid{margin:8px 0}
+  .fg-item{padding:6px 2px}
+  .fg-item b{font-size:16px}
+  .final-extra{font-size:9px;padding:5px;line-height:1.45}
+  .km-minute{font-size:34px}
+}
 
 /* ---- 转会报价 ---- */
 .offer-card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
