@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>足球人生 · Football Life</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- ===== 创建角色 ===== -->
+<section id="create" class="screen active">
+  <div class="logo">
+    <h1>足球人生</h1>
+    <p>FOOTBALL LIFE · 从16岁到退役的传奇之路</p>
+  </div>
+  <div class="form-card">
+    <div class="field">
+      <label>你的名字</label>
+      <input id="inp-name" type="text" maxlength="8" placeholder="留空随机生成">
+    </div>
+    <div class="field">
+      <label>场上位置</label>
+      <select id="sel-pos">
+        <option value="前锋">前锋（进球机器）</option>
+        <option value="中场">中场（组织核心）</option>
+        <option value="后卫">后卫（防线铁闸）</option>
+        <option value="门将">门将（最后一道墙）</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>国籍（影响国家队门槛）</label>
+      <select id="sel-nation">
+        <option>中国</option><option>巴西</option><option>法国</option><option>阿根廷</option>
+        <option>德国</option><option>西班牙</option><option>英格兰</option><option>葡萄牙</option>
+        <option>意大利</option><option>荷兰</option><option>日本</option><option>韩国</option>
+        <option>克罗地亚</option><option>乌拉圭</option><option>墨西哥</option><option>塞内加尔</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>你的足球起点</label>
+      <select id="sel-firsttouch">
+        <option value="0">街头野球 —— 灵性与盘带（创造力+把握机会加成）</option>
+        <option value="1">校园球队 —— 纪律与基本功（创造力+防守+体能加成）</option>
+        <option value="2">青训营 —— 系统训练（速度+创造力+身体加成，声望起步高）</option>
+        <option value="3">对着墙练球 —— 金左脚（创造力+把握机会加成）</option>
+      </select>
+    </div>
+    <button id="btn-start" class="btn primary">开始职业生涯</button>
+    <button id="btn-continue" class="btn ghost" style="display:none">继续上次存档</button>
+  </div>
+</section>
+
+<!-- ===== 主界面 ===== -->
+<section id="main" class="screen">
+  <header id="topbar">
+    <div class="tb-row1">
+      <div><span id="v-name">—</span><span id="v-pos">—</span></div>
+      <div class="tb-right">
+        <div id="v-age">—</div>
+        <button id="btn-achv" class="trophy-btn" title="成就">🏆<span id="achv-badge">0</span></button>
+      </div>
+    </div>
+    <div id="v-club">—</div>
+    <div class="tb-row2">
+      <span>综合 <b id="v-ca">—</b></span>
+      <span>有效 <b id="v-eff">—</b></span>
+      <span>身价 <b id="v-value">—</b></span>
+      <span>声望 <b id="v-rep">—</b></span>
+      <span>士气 <b id="v-morale">—</b></span>
+    </div>
+    <div class="meters">
+      <div>体能 <b id="v-fit">—</b><div class="meter" id="bar-fitness"><i></i></div></div>
+      <div>状态 <b id="v-form">—</b><div class="meter" id="bar-form"><i></i></div></div>
+    </div>
+    <div id="v-season">—</div>
+  </header>
+  <div id="injury-banner"></div>
+
+  <div class="home-body">
+    <div class="home-hint" id="home-hint">—</div>
+    <div class="tiles">
+      <button class="tile t-attr" data-panel="ov-attr">
+        <div class="t-head"><span class="t-name">属性</span><span class="t-icon">📊</span></div>
+        <div class="t-main" id="tile-ca">—</div>
+        <div class="t-sub" id="tile-attr-sub">综合 / 潜力</div>
+        <div class="t-foot">能力与体能影响 ›</div>
+      </button>
+      <button class="tile t-train" data-panel="ov-train">
+        <div class="t-head"><span class="t-name">训练</span><span class="t-icon">⚡</span></div>
+        <div class="t-main small" id="tile-train-main">可训练</div>
+        <div class="t-sub" id="tile-train-sub">—</div>
+        <div class="t-foot" id="tile-train-foot">—</div>
+      </button>
+      <button class="tile t-data" data-panel="ov-data">
+        <div class="t-head"><span class="t-name">数据</span><span class="t-icon">📈</span></div>
+        <div class="t-main" id="tile-apps">—</div>
+        <div class="t-sub" id="tile-data-sub">—</div>
+        <div class="t-foot" id="tile-data-foot">—</div>
+      </button>
+      <button class="tile t-career" data-panel="ov-career">
+        <div class="t-head"><span class="t-name">生涯</span><span class="t-icon">🏅</span></div>
+        <div class="t-main small" id="tile-season">—</div>
+        <div class="t-sub" id="tile-career-sub">—</div>
+        <div class="t-foot" id="tile-career-foot">—</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- 底部比赛操作条 -->
+  <div id="bottombar">
+    <button id="btn-match" class="btn match">出战</button>
+    <button id="btn-simweek" class="btn dark">快进</button>
+    <button id="btn-endseason" class="btn" style="background:var(--gold);color:#3a2800">赛季收官</button>
+  </div>
+</section>
+
+<!-- ===== 属性面板 ===== -->
+<div class="overlay" id="ov-attr">
+  <div class="panel">
+    <div class="panel-head"><span>属性 · 能力与体能</span><button class="panel-close" data-close="ov-attr">✕</button></div>
+    <div class="panel-body">
+      <div id="radar-wrap">
+        <canvas id="radar"></canvas>
+        <div id="data-line">综合 <b id="data-ca">—</b> / 潜力上限 <b id="data-pot">—</b></div>
+        <div id="data-eff"></div>
+      </div>
+      <div class="attr-note">进度条 = 当前等级 + 距离下一级已积累的训练进度（不显示具体经验值）</div>
+      <h3>属性详情</h3>
+      <div id="attr-detail"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 训练面板 ===== -->
+<div class="overlay" id="ov-train">
+  <div class="panel">
+    <div class="panel-head"><span>训练安排</span><button class="panel-close" data-close="ov-train">✕</button></div>
+    <div class="panel-body">
+      <h3 id="train-week">—</h3>
+      <div class="cat-grid" id="train-cats"></div>
+      <div class="int-row" id="intensity-row"></div>
+      <div class="muted" style="margin:-3px 0 9px;font-size:10px">强度越高，体能消耗与训练收益同步放大；强化特训收益最高，但有受伤风险。</div>
+      <div class="train-preview" id="train-preview">—</div>
+      <button id="btn-train" class="btn primary" style="background:var(--green);color:#fff">开始训练</button>
+      <p class="muted" style="margin-top:12px;font-size:10px;line-height:1.6">赛后每周基础恢复 <b id="train-rec" style="color:var(--green-d)">+56</b> 体能：正常情况下“满场 + 普通训练”基本可以回满；若“大负荷比赛 + 强化特训”，恢复会不满，需要安排恢复周。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 数据面板 ===== -->
+<div class="overlay" id="ov-data">
+  <div class="panel">
+    <div class="panel-head"><span>数据 · 本赛季</span><button class="panel-close" data-close="ov-data">✕</button></div>
+    <div class="panel-body">
+      <div class="grid2">
+        <div class="stat-card"><div class="num" id="v-seasonapps">0</div><div class="lab">出场</div></div>
+        <div class="stat-card"><div class="num" id="v-seasongoals">0</div><div class="lab">进球</div></div>
+        <div class="stat-card"><div class="num" id="v-seasonassists">0</div><div class="lab">助攻</div></div>
+        <div class="stat-card"><div class="num" id="v-seasonrating">—</div><div class="lab">场均评分</div></div>
+        <div class="stat-card"><div class="num" id="v-seasonmotm">0</div><div class="lab">全场最佳</div></div>
+        <div class="stat-card"><div class="num" id="v-seasoncaps">0</div><div class="lab">国家队出场</div></div>
+      </div>
+      <h3>最近比赛</h3>
+      <div id="season-log"></div>
+      <h3>国家队征召</h3>
+      <p class="muted" style="margin-bottom:8px">综合评分达到国家队门槛后被征召，每赛季可响应一次征召。</p>
+      <button id="btn-nat" class="btn dark" style="width:100%">响应国家队征召</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 生涯面板 ===== -->
+<div class="overlay" id="ov-career">
+  <div class="panel">
+    <div class="panel-head"><span>生涯</span><button class="panel-close" data-close="ov-career">✕</button></div>
+    <div class="panel-body">
+      <h3>生涯总览</h3>
+      <div id="career-summary"></div>
+      <h3>冠军室</h3>
+      <div id="trophies-list"></div>
+      <h3>赛季履历</h3>
+      <div id="career-history"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 成就面板 ===== -->
+<div class="overlay" id="ov-achv">
+  <div class="panel">
+    <div class="panel-head"><span>成就殿堂</span><button class="panel-close" data-close="ov-achv">✕</button></div>
+    <div class="panel-body">
+      <div id="achv-head">
+        <span class="muted">解锁进度</span>
+        <span id="achv-count">0 / 0</span>
+      </div>
+      <div id="achv-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 比赛实况层 ===== -->
+<div class="overlay" id="match-layer">
+  <div class="panel">
+    <div class="panel-head" id="match-title">比赛</div>
+    <div class="panel-body" id="match-lines"></div>
+    <div class="panel-foot">
+      <button id="btn-match-close" class="btn primary" style="background:var(--green);color:#fff">继续</button>
+      <button id="btn-again" class="btn" onclick="location.reload()">再踢一辈子</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 转会层 ===== -->
+<div class="overlay" id="offer-layer">
+  <div class="panel">
+    <div class="panel-head">转会邀请</div>
+    <div class="panel-body" id="offers-box"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+
+<!-- 依赖顺序：配置数据 → 仿真引擎 → 界面交互 -->
+<script src="js/data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
