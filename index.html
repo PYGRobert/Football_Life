@@ -29,21 +29,12 @@
       </select>
     </div>
     <div class="field">
-      <label>国籍（影响国家队门槛）</label>
-      <select id="sel-nation">
-        <option>中国</option><option>巴西</option><option>法国</option><option>阿根廷</option>
-        <option>德国</option><option>西班牙</option><option>英格兰</option><option>葡萄牙</option>
-        <option>意大利</option><option>荷兰</option><option>日本</option><option>韩国</option>
-        <option>克罗地亚</option><option>乌拉圭</option><option>墨西哥</option><option>塞内加尔</option>
-      </select>
-    </div>
-    <div class="field">
       <label>你的足球起点</label>
       <select id="sel-firsttouch">
-        <option value="0">街头野球 —— 灵性与盘带（创造力+把握机会加成）</option>
-        <option value="1">校园球队 —— 纪律与基本功（创造力+防守+体能加成）</option>
-        <option value="2">青训营 —— 系统训练（速度+创造力+身体加成，声望起步高）</option>
-        <option value="3">对着墙练球 —— 金左脚（创造力+把握机会加成）</option>
+        <option value="0">街头野球 —— 灵性与盘带（技术+盘带+射门加成）</option>
+        <option value="1">校园球队 —— 纪律与基本功（技术+防守+耐力+决断加成）</option>
+        <option value="2">青训营 —— 系统训练（速度+技术+力量+传球加成，声望起步高）</option>
+        <option value="3">对着墙练球 —— 金左脚（技术+射门+冷静加成）</option>
       </select>
     </div>
     <button id="btn-start" class="btn primary">开始职业生涯</button>
@@ -110,7 +101,7 @@
   <!-- 底部比赛操作条 -->
   <div id="bottombar">
     <button id="btn-match" class="btn match">出战</button>
-    <button id="btn-simweek" class="btn dark">快进</button>
+    <button id="btn-simweek" class="btn dark">模拟下一场</button>
     <button id="btn-endseason" class="btn" style="background:var(--gold);color:#3a2800">赛季收官</button>
   </div>
 </section>
@@ -120,14 +111,13 @@
   <div class="panel">
     <div class="panel-head"><span>属性 · 能力与体能</span><button class="panel-close" data-close="ov-attr">✕</button></div>
     <div class="panel-body">
-      <div id="radar-wrap">
-        <canvas id="radar"></canvas>
-        <div id="data-line">综合 <b id="data-ca">—</b> / 潜力上限 <b id="data-pot">—</b></div>
-        <div id="data-eff"></div>
+      <div class="attr-summary">
+        <div><span>综合</span><b id="data-ca">—</b></div>
+        <div><span>潜力</span><b id="data-pot">—</b></div>
+        <div><span>比赛发挥</span><b id="data-eff">—</b></div>
       </div>
-      <div class="attr-note">进度条 = 当前等级 + 距离下一级已积累的训练进度（不显示具体经验值）</div>
-      <h3>属性详情</h3>
-      <div id="attr-detail"></div>
+      <div class="attr-note">数值 1–20：灰 1–5 差 · 白 6–10 普通 · 黄 11–15 标准 · 绿 16–20 优秀</div>
+      <div id="attr-groups"></div>
     </div>
   </div>
 </div>
@@ -143,7 +133,7 @@
       <div class="muted" style="margin:-3px 0 9px;font-size:10px">强度越高，体能消耗与训练收益同步放大；强化特训收益最高，但有受伤风险。</div>
       <div class="train-preview" id="train-preview">—</div>
       <button id="btn-train" class="btn primary" style="background:var(--green);color:#fff">开始训练</button>
-      <p class="muted" style="margin-top:12px;font-size:10px;line-height:1.6">赛后每周基础恢复 <b id="train-rec" style="color:var(--green-d)">+56</b> 体能：正常情况下“满场 + 普通训练”基本可以回满；若“大负荷比赛 + 强化特训”，恢复会不满，需要安排恢复周。</p>
+      <p class="muted" style="margin-top:12px;font-size:10px;line-height:1.6">训练先扣除体能，再恢复到下一场开场目标：轻度 <b>100%</b> · 普通 <b>95%</b> · 强化 <b>82%</b>。不训练则赛前恢复到 100%。</p>
     </div>
   </div>
 </div>
@@ -159,13 +149,9 @@
         <div class="stat-card"><div class="num" id="v-seasonassists">0</div><div class="lab">助攻</div></div>
         <div class="stat-card"><div class="num" id="v-seasonrating">—</div><div class="lab">场均评分</div></div>
         <div class="stat-card"><div class="num" id="v-seasonmotm">0</div><div class="lab">全场最佳</div></div>
-        <div class="stat-card"><div class="num" id="v-seasoncaps">0</div><div class="lab">国家队出场</div></div>
       </div>
       <h3>最近比赛</h3>
       <div id="season-log"></div>
-      <h3>国家队征召</h3>
-      <p class="muted" style="margin-bottom:8px">综合评分达到国家队门槛后被征召，每赛季可响应一次征召。</p>
-      <button id="btn-nat" class="btn dark" style="width:100%">响应国家队征召</button>
     </div>
   </div>
 </div>
@@ -201,8 +187,13 @@
 
 <!-- ===== 比赛实况层 ===== -->
 <div class="overlay" id="match-layer">
-  <div class="panel">
+  <div class="panel match-panel">
     <div class="panel-head" id="match-title">比赛</div>
+    <div id="match-hud">
+      <div class="mh-block"><b id="mh-minute">0'</b><span>时间</span></div>
+      <div class="mh-block mh-center"><b id="mh-score">0 : 0</b><span id="mh-teams">—</span></div>
+      <div class="mh-block"><b id="mh-rating">6.5</b><span>评分</span></div>
+    </div>
     <div class="panel-body" id="match-lines"></div>
     <div class="panel-foot">
       <button id="btn-match-close" class="btn primary" style="background:var(--green);color:#fff">继续</button>
