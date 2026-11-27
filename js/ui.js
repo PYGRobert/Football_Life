@@ -1,18 +1,25 @@
 /* ============================================================
    足球人生 · UI 交互层
    ------------------------------------------------------------
-   负责：DOM 绑定、面板开关、渲染、Toast、比赛逐步播放。
+   负责：DOM 绑定、面板开关、渲染、Toast、比赛逐步播放、存档槽。
    依赖：js/data.js 中的配置、js/engine.js 暴露的全局函数与 G。
    ============================================================ */
 'use strict';
 
-/* ================= 足球人生 · UI 交互层 ================= */
 const $=s=>document.querySelector(s);
 const $$=s=>document.querySelectorAll(s);
 
 let toastTimer=null;
-let trainCat='technique';
-let trainInt='normal';
+let trainCat='finish';
+let trainDays=3;          /* 本周训练天数选择 0~6 */
+let slotMode='load';      /* 存档槽面板模式：load=读取 / replace=替换或放弃 */
+
+/* 当前位置的训练模块列表；并确保选中的模块对该位置有效 */
+function posTrainCats(){
+  const list=(G&&TRAIN_CATS[G.position])||TRAIN_CATS['中场'];
+  if(!list.some(c=>c.id===trainCat)) trainCat=list[0].id;
+  return list;
+}
 
 /* 比赛播放状态 */
 let matchToken=0;
@@ -25,21 +32,33 @@ window.onerror=function(msg,src,line){
 
 /* ---------- 初始化 ---------- */
 document.addEventListener('DOMContentLoaded',()=>{
+  importLegacySave();
   bindCreate();
   bindPanels();
   bindActions();
+  bindSlots();
   $('#btn-match-close').onclick=()=>{
     if(matchState && matchState.playing) skipMatchPlayback();
     else closeMatchLayer();
   };
-  if(hasSave()){ $('#btn-continue').style.display='block'; }
+  rebuildDutyOptions();
+  refreshMenuButtons();
+  /* 退出（关闭/刷新）时自动保存当前存档槽 */
+  window.addEventListener('beforeunload',()=>{
+    if(G && G.saveSlot!=null) saveGame(G.saveSlot);
+  });
 });
 
 /* ---------- 面板开关 ---------- */
 function bindPanels(){
-  $$('.tile').forEach(t=>{ t.onclick=()=>openPanel(t.dataset.panel); });
+  $$('.tile[data-panel]').forEach(t=>{ t.onclick=()=>openPanel(t.dataset.panel); });
   $$('.panel-close').forEach(b=>{ b.onclick=()=>closePanel(b.dataset.close); });
   $('#btn-achv').onclick=()=>openPanel('ov-achv');
+  /* 数据 ⇄ 生涯 面板互跳 */
+  const toCareer=$('#btn-to-career');
+  if(toCareer) toCareer.onclick=()=>{ closePanel('ov-data'); openPanel('ov-career'); };
+  const toData=$('#btn-to-data');
+  if(toData) toData.onclick=()=>{ closePanel('ov-career'); openPanel('ov-data'); };
   $$('.overlay').forEach(ov=>{
     ov.addEventListener('click',e=>{
       if(e.target!==ov) return;
@@ -60,24 +79,120 @@ function openPanel(id){
 function closePanel(id){ const el=$('#'+id); if(el) el.classList.remove('show'); }
 
 function bindCreate(){
+  $('#sel-pos').onchange=()=>rebuildDutyOptions();
   $('#btn-start').onclick=()=>{
     try{
       const name=$('#inp-name').value.trim();
       const pos=$('#sel-pos').value;
-      const ft=parseInt($('#sel-firsttouch').value,10);
+      const ft=parseInt($('#sel-firsttouch').value,10)||0;
       newGame(name,pos,ft);
       const ca=calcCA(G);
       G.potential=clamp(Math.round(ca)+ri(6,11)+(rnd()<0.12?3:0),10,20);
+      trainDays=G.trainDays||3;
       startSeason();
       switchScreen('main');
       renderAll();
-      toast(`欢迎来到职业足坛，${G.name}！16岁的你与 ${clubName(G.clubTier,G.clubIdx)} 签下了第一份合同。`);
-      saveGame();
+      /* 存档：优先空栏位；已满则提示替换或放弃 */
+      const slot=emptySlot();
+      if(slot!=null){
+        G.saveSlot=slot; saveGame(slot);
+        toast(`欢迎来到职业足坛，${G.name}！已存入栏位 ${slot}。`);
+      }else{
+        toast('存档栏位已满，请选择一个栏位替换，或放弃本次存档。');
+        openSlotLayer('replace');
+      }
+      refreshMenuButtons();
     }catch(e){ toast('创建失败: '+e.message); }
   };
-  $('#btn-continue').onclick=()=>{
-    if(loadGame()){ syncSeason(); switchScreen('main'); renderAll(); toast('欢迎回来，继续你的足球人生！'); }
+  $('#btn-load').onclick=()=>openSlotLayer('load');
+  $('#btn-menu').onclick=returnToMenu;
+}
+
+/* 足球起点：随位置切换为对应职责（只显示职责名称） */
+function rebuildDutyOptions(){
+  const sel=$('#sel-firsttouch'); if(!sel) return;
+  const pos=($('#sel-pos')&&$('#sel-pos').value)||'前锋';
+  const list=FIRST_TOUCH_BY_POS[pos]||FIRST_TOUCH_BY_POS['前锋'];
+  const prev=parseInt(sel.value,10);
+  sel.innerHTML=list.map((d,i)=>`<option value="${i}">${d.t}</option>`).join('');
+  sel.value=(isNaN(prev)||prev>=list.length)?0:prev;
+}
+
+/* ---------- 存档槽 ---------- */
+function bindSlots(){
+  $('#slot-discard').onclick=()=>{
+    if(G) G.saveSlot=null;
+    $('#slot-layer').classList.remove('show');
+    toast('已放弃本次存档，本局进度不会被保存。');
   };
+}
+function refreshMenuButtons(){
+  const b=$('#btn-load'); if(b) b.style.display=hasSave()?'block':'none';
+}
+function openSlotLayer(mode){
+  slotMode=mode||'load';
+  $('#slot-title').textContent=slotMode==='replace'?'存档已满 · 选择栏位':'读取存档';
+  $('#slot-discard').style.display=slotMode==='replace'?'block':'none';
+  renderSlotList();
+  $('#slot-layer').classList.add('show');
+}
+function renderSlotList(){
+  const box=$('#slot-list'); if(!box) return;
+  const slots=listSlots();
+  box.innerHTML=slots.map(s=>{
+    if(s.empty){
+      return `<div class="slot-card empty" data-idx="${s.idx}">
+        <span class="slot-no">栏位 ${s.idx}</span>
+        <div class="slot-info"><div class="slot-name">空</div></div>
+        <span class="slot-act">${slotMode==='replace'?'存入':'—'}</span>
+      </div>`;
+    }
+    const act=slotMode==='replace'?'替换':'读取';
+    const when=s.savedAt?new Date(s.savedAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+    return `<div class="slot-card" data-idx="${s.idx}">
+      <span class="slot-no">栏位 ${s.idx}</span>
+      <div class="slot-info">
+        <div class="slot-name">${s.name} <span class="tag t${s.tier||3}">${s.position}</span></div>
+        <div class="slot-sub">第 ${s.season} 赛季 · ${s.age} 岁 · ${s.club}${s.retired?' · 已退役':''}${when?' · '+when:''}</div>
+      </div>
+      <span class="slot-act">${act}</span>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.slot-card').forEach(el=>{
+    el.onclick=()=>onSlotPick(parseInt(el.dataset.idx,10));
+  });
+}
+function onSlotPick(idx){
+  if(slotMode==='load'){
+    if(!loadGame(idx)){ toast('该栏位没有存档。'); return; }
+    trainDays=G.trainDays||3;
+    syncSeason();
+    switchScreen('main');
+    renderAll();
+    /* 存档里若留有未处理的赛季命运/合同报价，读档后补显 */
+    if(Array.isArray(G.offers)&&G.offers.length) setTimeout(()=>showOffers(),300);
+    toast(`已读取栏位 ${idx}：${G.name}，第 ${G.season} 赛季。`);
+  }else{
+    /* 替换：把当前进度写入该栏位 */
+    if(!G){ toast('当前没有进行中的存档。'); return; }
+    saveGame(idx);
+    $('#slot-layer').classList.remove('show');
+    toast(`已保存到栏位 ${idx}。`);
+  }
+  refreshMenuButtons();
+}
+
+/* 退回开始菜单（自动保存） */
+function returnToMenu(){
+  if(G && G.saveSlot!=null){
+    saveGame(G.saveSlot);
+    toast('已保存并返回主菜单。');
+  }else{
+    toast('已返回主菜单（当前进度未保存）。');
+  }
+  $$('.overlay').forEach(o=>o.classList.remove('show'));
+  refreshMenuButtons();
+  switchScreen('create');
 }
 
 function startSeason(){
@@ -85,7 +200,6 @@ function startSeason(){
   viewRound=0;
   G.offers=[];
   G.roundTrained=-1;
-  G.trainInt='normal';
   G.matchLog=[];
 }
 function syncSeason(){
@@ -107,30 +221,31 @@ function bindActions(){
     const b=e.target.closest('.cat-btn'); if(!b) return;
     trainCat=b.dataset.cat; renderTrainUI();
   });
-  $('#intensity-row').addEventListener('click',e=>{
+  $('#day-row').addEventListener('click',e=>{
     const b=e.target.closest('.int-btn'); if(!b) return;
-    trainInt=b.dataset.int; renderTrainUI();
+    trainDays=parseInt(b.dataset.days,10)||0;
+    renderTrainUI();
   });
 
   $('#btn-train').onclick=()=>{
-    const res=doTraining(trainCat,trainInt);
+    const res=doTraining(trainCat,trainDays);
     toast(res.msg);
+    if(res.ok) trainDays=G.trainDays;
     renderAll(); saveGame();
   };
   $('#btn-match').onclick=()=>playMatch(false);
   $('#btn-endseason').onclick=()=>endSeason();
 
-  /* 模拟下一场：默认完成一次平均训练（普通强度） */
+  /* 模拟下一场：未训练则按当前天数选择自动训练 */
   $('#btn-simweek').onclick=()=>{
     if(!G||G.retired) return;
     if(viewRound>=fixtures.length){ endSeason(); return; }
-    if(G.injuryWeeks>0){ playMatch(true); return; }
     let note='';
     if(G.roundTrained!==viewRound){
       const catId=autoTrainCategory();
-      const cat=TRAIN_CATS.find(c=>c.id===catId);
-      const r=doTraining(catId,'normal');
-      if(r.ok && cat) note=`自动${cat.name}（普通强度）`;
+      const cat=posTrainCats().find(c=>c.id===catId);
+      const r=doTraining(catId,trainDays);
+      if(r.ok && cat) note=`自动${cat.name} · ${trainDays}天`;
     }
     playMatch(true,note);
   };
@@ -140,38 +255,15 @@ function bindActions(){
 function playMatch(auto,note){
   if(!G||G.retired) return;
   if(viewRound>=fixtures.length){ toast('本赛季联赛已全部结束，点击"赛季收官"。'); return; }
-  if(G.injuryWeeks>0){
-    G.injuryWeeks--;
-    G.fitness=100;
-    toast(`伤病恢复中…还需 ${G.injuryWeeks} 周。你缺席了本轮比赛，体能已恢复。`);
-    viewRound++;
-    G.roundTrained=-1;
-    renderAll(); saveGame();
-    return;
-  }
   const fx=fixtures[viewRound];
   const roundNo=viewRound+1;
+  const daysTrained=(G.roundTrained===viewRound)?(G.trainDays||0):0;
 
   prepareMatchFitness();
   const m=simMatch(G,fx.opp,fx.home);
   viewRound++;
 
-  let ups=[];
-  if(m.played){
-    G.seasonStats.apps++;
-    G.seasonStats.goals+=m.goals;
-    G.seasonStats.assists+=m.assists;
-    G.seasonStats.ratings.push(m.rating);
-    if(m.motm) G.seasonStats.motm=(G.seasonStats.motm||0)+1;
-    if(rnd()<0.4) G.form=clamp(G.form+0.01,0,1);
-    ups=matchXP(m);
-  }
-  /* 未登场：评分 6.0 只记录在比赛日志，不进入场均评分 */
-  G.fitness=m.fitAfter;
-  if(m.injured>0){
-    G.injuryWeeks=m.injured;
-    G.morale=clamp(G.morale-12,0,100);
-  }
+  const ups=applyWeekResult(m,daysTrained);
   G.matchLog.push({
     round:roundNo, opp:fx.opp, home:fx.home,
     score:[m.score[0],m.score[1]], rating:m.rating,
@@ -179,7 +271,6 @@ function playMatch(auto,note){
     subbed:m.subbed, motm:m.motm, played:m.played
   });
   if(G.matchLog.length>12) G.matchLog.shift();
-  G.roundTrained=-1;
   updateValue(G);
   const unl=checkAchievements({match:m});
   saveGame();
@@ -187,7 +278,7 @@ function playMatch(auto,note){
   if(auto){
     renderAll();
     const res=m.win?'胜':m.draw?'平':'负';
-    toast(`模拟完成：${m.score[0]}-${m.score[1]} ${res} ${fx.opp} · ${m.played?`评分 ${m.rating.toFixed(1)}`:'未登场 评分 6.0'}${note?' · '+note:''}`);
+    toast(`模拟完成：${m.score[0]}-${m.score[1]} ${res} ${fx.opp} · ${m.played?`评分 ${m.rating.toFixed(1)}`:'未登场'}${note?' · '+note:''}`);
     return;
   }
 
@@ -199,28 +290,14 @@ function playMatch(auto,note){
 function endSeason(){
   if(!G||G.retired) return;
   while(viewRound<fixtures.length){
-    if(G.injuryWeeks>0){
-      G.injuryWeeks--; G.fitness=100; viewRound++; G.roundTrained=-1; continue;
-    }
-    if(G.roundTrained!==viewRound) doTraining(autoTrainCategory(),'normal');
-    if(G.injuryWeeks>0){
-      G.injuryWeeks--; G.fitness=100; viewRound++; G.roundTrained=-1; continue;
-    }
+    const daysTrained=(G.roundTrained===viewRound)?(G.trainDays||0):0;
+    if(daysTrained<=0) doTraining(autoTrainCategory(),trainDays);
     prepareMatchFitness();
     const fx=fixtures[viewRound];
     const m=simMatch(G,fx.opp,fx.home);
-    if(m.played){
-      G.seasonStats.apps++;
-      G.seasonStats.goals+=m.goals;
-      G.seasonStats.assists+=m.assists;
-      G.seasonStats.ratings.push(m.rating);
-      if(m.motm) G.seasonStats.motm=(G.seasonStats.motm||0)+1;
-      matchXP(m);
-    }
-    G.fitness=m.fitAfter;
-    if(m.injured>0) G.injuryWeeks=m.injured;
+    const days=(G.roundTrained===viewRound)?(G.trainDays||0):0;
+    applyWeekResult(m,days);
     viewRound++;
-    G.roundTrained=-1;
   }
   const res=advanceSeason();
   const unl=checkAchievements({season:true, trophy:res.summary.standing===1, promoted:res.summary.promoted});
@@ -228,15 +305,24 @@ function endSeason(){
   const lines=[
     `${s.club} · ${tierName(s.tier)} 赛季结算`,
     `出场 ${s.apps} · 进球 ${s.goals} · 助攻 ${s.assists} · 场均评分 ${s.avgRating||'—'}`,
-    s.standing===1?`联赛冠军！`:s.standing<=3?`联赛第 ${s.standing} 名，获得奖牌`:s.relegated?`联赛第 ${s.standing} 名，不幸降级…`:`联赛第 ${s.standing} 名`,
+    s.loanReturn?`租借期满，回归 ${s.parentClub}`:
+      s.standing===1?`联赛冠军！`:
+      s.standing<=3?`联赛第 ${s.standing} 名，获得奖牌`:
+      s.relegated?`联赛第 ${s.standing} 名，不幸降级…`:
+      `联赛第 ${s.standing} 名`,
     s.promoted?`球队升级成功！`:'',
+    s.fateEvent==='upgrade'?`你的表现打动了高一级俱乐部，收到了求购报价！`:'',
+    s.fateEvent==='sell'?`球队决定出售 / 租借你，收到了报价！`:'',
     `新赛季你的年龄：${s.age} 岁`,
     ...unl.map(u=>`成就解锁：${u.name}`)
   ].filter(Boolean);
   if(res.retired){
     showRetire(lines);
   } else {
+    /* startSeason 会清空 offers —— 先暂存命运/合同报价，开局后再放回 */
+    const pendingOffers=G.offers||[];
     startSeason();
+    G.offers=pendingOffers;
     showMatchLayer(lines,'赛季结算');
     if(G.offers.length){ setTimeout(()=>showOffers(),600); }
   }
@@ -259,22 +345,44 @@ function showRetire(baseLines){
   $('#btn-again').style.display='block';
 }
 
-/* ---------- 转会 ---------- */
+/* ---------- 转会 / 求购 / 出售·租借 报价 ---------- */
+const OFFER_INFO={
+  contract:{kicker:'合同到期 · 转会邀请', accept:'接受报价', stay:'留队'},
+  upgrade :{kicker:'高一级俱乐部求购',     accept:'转会加盟', stay:'拒绝 · 留队'},
+  sell    :{kicker:'球队挂牌出售',         accept:'同意转会', stay:'拒绝 · 留队'},
+  loan    :{kicker:'球队安排租借',         accept:'同意租借', stay:'拒绝 · 留队'}
+};
 function showOffers(){
   const box=$('#offers-box'); box.innerHTML='';
   G.offers.forEach((o,i)=>{
+    const info=OFFER_INFO[o.kind||'contract']||OFFER_INFO.contract;
     const d=document.createElement('div');
     d.className='offer-card';
-    d.innerHTML=`<div class="offer-club">${o.club} <span class="tag t${o.tier}">${tierName(o.tier)}</span></div>
-      <div class="offer-row">转会费 €${o.fee}万 · 周薪 €${o.salary}万 · ${o.years} 年合同</div>`;
+    const row=o.kind==='loan'
+      ? `<div class="offer-row">租借 ${o.years} 年 · 周薪 €${o.salary}万</div>`
+      : `<div class="offer-row">${o.fee>0?`转会费 €${o.fee}万 · `:''}周薪 €${o.salary}万 · ${o.years} 年合同</div>`;
+    d.innerHTML=`<div class="offer-kicker">${info.kicker}</div>
+      <div class="offer-club">${o.club} <span class="tag t${o.tier}">${tierName(o.tier)}</span></div>
+      ${row}`;
     const b=document.createElement('button');
     b.className='btn small'; b.style.cssText='background:var(--green);color:#fff';
-    b.textContent='接受报价';
-    b.onclick=()=>{ acceptOffer(i); $('#offer-layer').classList.remove('show'); toast(`你转会至 ${o.club}！`); renderAll(); saveGame(); };
+    b.textContent=info.accept;
+    b.onclick=()=>{
+      acceptOffer(i);
+      $('#offer-layer').classList.remove('show');
+      toast(o.kind==='loan'?`你租借加盟 ${o.club}！`:`你转会至 ${o.club}！`);
+      syncSeason();               /* 更换俱乐部 → 按新联赛重排赛程 */
+      renderAll(); saveGame();
+    };
     const stay=document.createElement('button');
     stay.className='btn small'; stay.style.cssText='background:#e5e7eb;color:#333';
-    stay.textContent='留队';
-    stay.onclick=()=>{ G.offers=[]; G.contractYears=Math.max(G.contractYears,1); $('#offer-layer').classList.remove('show'); toast('你选择留守球队。'); };
+    stay.textContent=info.stay;
+    stay.onclick=()=>{
+      G.offers=[]; G.contractYears=Math.max(G.contractYears,1);
+      $('#offer-layer').classList.remove('show');
+      toast('你选择留守球队。');
+      renderAll(); saveGame();
+    };
     d.appendChild(b); d.appendChild(stay);
     box.appendChild(d);
   });
@@ -299,7 +407,7 @@ function fitTiles(){
   const tiles=$('.tiles'); if(!tiles) return;
   const top=tiles.getBoundingClientRect().top;
   if(top<=0) return;
-  const reserve=88;                       // 底部操作条与留白
+  const reserve=88;
   const avail=window.innerHeight-top-reserve;
   const max=Math.max(72,Math.floor((avail-10)/2));
   tiles.style.setProperty('--tile-max',max+'px');
@@ -312,20 +420,17 @@ function renderTop(){
   $('#v-pos').textContent=G.position;
   $('#v-age').textContent=G.age+' 岁';
   $('#v-club').textContent=`${clubName(G.clubTier,G.clubIdx)} · ${tierName(G.clubTier)}`;
-  $('#v-ca').textContent=fmt1(calcCA(G));
-  $('#v-eff').textContent=fmt1(calcEffCA());
+  $('#v-ca').textContent=starsText(caStars(calcCA(G)));
   $('#v-value').textContent='€'+G.marketValue+'万';
-  $('#v-rep').textContent=`${repLabel(G.rep)} (${Math.round(G.rep)})`;
-  $('#v-morale').textContent=Math.round(G.morale);
+  const rep=$('#v-rep');
+  rep.textContent=repLabel(G.rep);
+  rep.className=repClass(G.rep);
   $('#v-season').textContent=`第 ${G.season} 赛季 · 第 ${Math.min(viewRound+1,fixtures.length||1)} / ${fixtures.length||34} 轮`;
-  $('#v-fit').textContent=Math.round(G.fitness)+'% · 发挥'+fitnessPct(G.fitness)+'%';
+  $('#v-fit').textContent=Math.round(G.fitness)+'%';
   $('#v-form').textContent=Math.round(G.form*100)+'%';
   $('#bar-fitness>i').style.width=G.fitness+'%';
   $('#bar-form>i').style.width=(G.form*100)+'%';
   $('#achv-badge').textContent=ACHIEVEMENTS.filter(a=>G.achievements&&G.achievements[a.id]).length;
-  const inj=$('#injury-banner');
-  if(G.injuryWeeks>0){ inj.style.display='block'; inj.textContent=`伤病中，还需恢复 ${G.injuryWeeks} 周`; }
-  else inj.style.display='none';
   $('#btn-match').disabled = G.retired || viewRound>=fixtures.length;
   $('#btn-match').textContent = G.retired?'已退役':viewRound>=fixtures.length?'联赛结束':`出战 · 第${viewRound+1}轮`;
 }
@@ -333,45 +438,47 @@ function renderTop(){
 /* 主界面四宫格 */
 function renderTiles(){
   if(!G) return;
-  const ca=calcCA(G), eff=calcEffCA();
-  $('#tile-ca').textContent=fmt1(ca);
-  $('#tile-attr-sub').textContent=`潜力 ${G.potential||'?'} · 有效 ${fmt1(eff)}`;
+  const ca=calcCA(G);
+  $('#tile-ca').textContent=starsText(caStars(ca));
+  $('#tile-attr-sub').textContent=`潜力 ${starsText(caStars(G.potential))} · 体能 ${Math.round(G.fitness)}%`;
 
   const done=G.roundTrained===viewRound;
   const over=viewRound>=fixtures.length;
-  const ready=done?(TRAIN_READY[G.trainInt||'normal']||95):100;
   let trainMain='可训练';
   if(G.retired) trainMain='已退役';
-  else if(G.injuryWeeks>0) trainMain='养伤中';
   else if(done) trainMain='已训练';
   else if(over) trainMain='赛季结束';
   $('#tile-train-main').textContent=trainMain;
-  const cat=TRAIN_CATS.find(c=>c.id===trainCat)||TRAIN_CATS[0];
-  const it=INTENSITIES.find(i=>i.id===trainInt)||INTENSITIES[1];
-  $('#tile-train-sub').textContent=`${cat.name} · ${it.name}`;
-  $('#tile-train-foot').textContent=`赛后体能 ${Math.round(G.fitness)}% · 赛前恢复至 ${ready}%`;
+  const cat=posTrainCats().find(c=>c.id===trainCat)||posTrainCats()[0];
+  $('#tile-train-sub').textContent=`${cat.name} · ${done?(G.trainDays||0):trainDays} 天`;
+  $('#tile-train-foot').textContent=`体能 ${Math.round(G.fitness)}% · 状态 ${Math.round(G.form*100)}%`;
   $('#tile-train-foot').className='t-foot';
 
-  const s=G.seasonStats;
-  $('#tile-apps').textContent=`${s.apps} 场`;
-  $('#tile-data-sub').textContent=`${s.goals} 球 · ${s.assists} 助`;
-  const avg=s.ratings.length?Math.round(s.ratings.reduce((a,b)=>a+b,0)/s.ratings.length*10)/10:0;
-  $('#tile-data-foot').textContent=avg?`场均评分 ${avg.toFixed(1)}`:'等待首秀';
+  /* 出场提示：下一场预期定位 + 预期上场时间 */
+  const plan=appearancePlan(G);
+  if(G.retired || over){
+    $('#tile-role').textContent='赛季结束';
+    $('#tile-minutes').textContent='等待赛季结算';
+    $('#tile-play-foot').textContent='—';
+  }else{
+    $('#tile-role').textContent=plan.role;
+    $('#tile-minutes').textContent=`预期上场 ${plan.expectMinutes} 分钟`;
+    $('#tile-play-foot').textContent=`综合 ${starsText(plan.st)} · 近期均评 ${(G.perfAvg>0)?G.perfAvg.toFixed(1):'—'}`;
+  }
 
-  $('#tile-season').textContent=`第 ${G.season} 赛季`;
-  $('#tile-career-sub').textContent=`${G.age} 岁 · ${tierName(G.clubTier)}`;
-  $('#tile-career-foot').textContent=`冠军 ${G.trophies.length} · 声望 ${repLabel(G.rep)}`;
+  /* 数据 · 生涯合并方格（上下两段） */
+  const s=G.seasonStats;
+  const avg=s.ratings.length?Math.round(s.ratings.reduce((a,b)=>a+b,0)/s.ratings.length*10)/10:0;
+  $('#m-data').textContent=`${s.apps}场 · ${s.goals}球 · ${s.assists}助 · 均评 ${avg?avg.toFixed(1):'—'}`;
+  $('#m-career').innerHTML=`第 ${G.season} 赛季 · ${G.age} 岁 · 冠军 ${G.trophies.length} · 声望 <b class="${repClass(G.rep)}">${repLabel(G.rep)}</b>`;
 
   let hint='';
-  if(G.retired){ hint='你的职业生涯已经结束，可以在生涯面板回顾荣誉。'; }
+  if(G.retired){ hint='生涯已结束，可在生涯面板回顾荣誉。'; }
   else if(viewRound<fixtures.length){
     const fx=fixtures[viewRound];
-    hint=`下一场：${fx.home?'主场迎战':'客场挑战'} <b>${fx.opp}</b> · 赛后体能 ${Math.round(G.fitness)}%（赛前恢复至 ${ready}%）`;
-    if(G.injuryWeeks>0) hint+=`<br><span class="warn">伤病中，还需恢复 ${G.injuryWeeks} 周，暂时无法训练。</span>`;
-    else if(done) hint+='<br>本周训练已完成，可以出战。';
-    else hint+='<br>本周可安排一次训练，或直接模拟下一场。';
+    hint=`下一场：${fx.home?'主场迎战':'客场挑战'} <b>${fx.opp}</b>`;
   }else{
-    hint='本赛季联赛已结束，点击底部“赛季收官”进行结算。';
+    hint='本赛季联赛已结束，点击“赛季收官”进行结算。';
   }
   $('#home-hint').innerHTML=hint;
 }
@@ -406,53 +513,56 @@ function renderDataPanel(){
   log.appendChild(tbl);
 }
 
-/* ---------- 训练面板 ---------- */
+/* ---------- 训练面板（天数制 0~6） ---------- */
 function renderTrainUI(){
   if(!G) return;
   const catsBox=$('#train-cats'); if(!catsBox) return;
-  catsBox.innerHTML=TRAIN_CATS.map(c=>`
+  const cats=posTrainCats();
+  catsBox.innerHTML=cats.map(c=>`
     <button class="cat-btn${c.id===trainCat?' active':''}" data-cat="${c.id}">
-      <span class="cat-name"><span class="cat-ico">${c.icon}</span>${c.name}</span>
-      <span class="cat-desc">${c.desc}</span>
-    </button>`).join('');
-  $('#intensity-row').innerHTML=INTENSITIES.map(i=>`
-    <button class="int-btn${i.id===trainInt?' active':''}" data-int="${i.id}">
-      ${i.name}<span class="im">${i.hint}</span>
+      <span class="cat-name">${c.name}</span>
     </button>`).join('');
 
-  const cat=TRAIN_CATS.find(c=>c.id===trainCat)||TRAIN_CATS[0];
-  const it=INTENSITIES.find(i=>i.id===trainInt)||INTENSITIES[1];
+  const dayRow=$('#day-row');
+  dayRow.innerHTML=Array.from({length:WEEK_DAYS+1},(_,d)=>`
+    <button class="int-btn${d===trainDays?' active':''}" data-days="${d}">
+      ${d}<span class="im">${d===0?'全休':'练'+d+'休'+(WEEK_DAYS-d)}</span>
+    </button>`).join('');
+
+  const cat=cats.find(c=>c.id===trainCat)||cats[0];
+  const days=trainDays;
+  const restDays=WEEK_DAYS-days;
+  const cost=Math.round(cat.cost*TRAIN_COST_PER_DAY_MUL*days);
+  const recover=FIT_RECOVER_PER_DAY*restDays;
+  const after=clamp(G.fitness+recover-cost,0,100);
+  const mul=dayXpMul(days);
+  const keys=ATTRS_BY_POS[G.position]||[];
+  const focus=(TRAIN_FOCUS[cat.id]||[]).filter(k=>keys.indexOf(k)>=0);
+  const focusTxt=focus.length?focus.map(k=>ATTR_LABEL[k]+'++').join('  '):'全属性+';
   const box=$('#train-preview');
-  const cost=Math.round(cat.cost*it.costMul);
-  const weights=TRAIN_POS_WEIGHTS[cat.id][G.position]||{};
-  const stars=w=>w>=0.9?'★★★':w>=0.35?'★★':'★';
-  const list=Object.keys(weights).sort((a,b)=>weights[b]-weights[a]).slice(0,4)
-    .map(k=>`${ATTR_LABEL[k]} ${stars(weights[k])}`).join(' · ');
-  const after=clamp(G.fitness-cost,0,100);
-  const gainWord=it.xpMul>=2?'大幅':it.xpMul>=1?'正常':'小幅';
-  const ready=TRAIN_READY[it.id]||95;
-  box.innerHTML=`<b>${cat.name}</b>：体能 <b>-${cost}</b>（${Math.round(G.fitness)} → ${Math.round(after)}）<br>
-    重点属性：${list}<br>
-    训练收益：<b>${gainWord}</b> · 训练后下一场开场体能 <b>${ready}%</b>
-    ${G.fitness<cost?'<br><span class="warn">体能不足，无法完成本次训练，可选择轻度训练。</span>':''}`;
+  box.innerHTML=`<b>（${cat.name}）</b>${focusTxt}<br>
+    训练 ${days} 天 / 休息 ${restDays} 天 · 体能 ${Math.round(G.fitness)} → <b>${Math.round(after)}</b> · 成长 ×${days>0?`<b>${fmt1(mul)}</b>`:'0'} · 学习 ×<b>${fmt1(learnMul(G))}</b> · 状态 +${Math.round(FORM_TRAIN_DAY*days*100)}%
+    ${after<30?'<br><span class="warn">赛后体能偏低，比赛发挥会受影响。</span>':''}`;
 
   const done=G.roundTrained===viewRound;
   const over=viewRound>=fixtures.length;
   const btn=$('#btn-train');
-  btn.disabled=done||over||G.retired||G.injuryWeeks>0;
-  btn.textContent=G.retired?'已退役':G.injuryWeeks>0?'养伤中':done?'本周已训练':over?'本赛季已结束':'开始训练';
+  btn.disabled=done||over||G.retired;
+  btn.textContent=G.retired?'已退役':done?'本周已安排':over?'本赛季已结束':'开始训练';
   $('#train-week').textContent=`第 ${Math.min(viewRound+1,fixtures.length||1)} 轮赛前 · ${done?'本周已安排':'本周可安排一次'}`;
 }
 
-/* ---------- 属性页（FM 风格数值） ---------- */
+/* ---------- 属性页：综合评价用星级，具体属性用 FM 的 1~20 ---------- */
 function renderData(){
-  const ca=calcCA(G), eff=calcEffCA();
-  $('#data-ca').textContent=fmt1(ca);
-  $('#data-pot').textContent=G.potential||'?';
-  $('#data-eff').textContent=`${fmt1(eff)}（${fitnessPct(G.fitness)}%）`;
+  const ca=calcCA(G);
+  $('#data-ca').textContent=starsText(caStars(ca));
+  $('#data-pot').textContent=starsText(caStars(G.potential));
+  $('#data-fit').textContent=Math.round(G.fitness)+'%';
+  $('#data-form').textContent=Math.round(G.form*100)+'%';
 
   const box=$('#attr-groups'); if(!box) return;
-  box.innerHTML=ATTR_GROUPS.map(g=>`
+  const groups=ATTR_GROUPS_BY_POS[G.position]||ATTR_GROUPS_BY_POS['中场'];
+  box.innerHTML=groups.map(g=>`
     <div class="attr-group">
       <h4>${g.name}</h4>
       <div class="attr-list">${g.keys.map(k=>`
@@ -463,6 +573,7 @@ function renderData(){
       </div>
     </div>`).join('');
 }
+/* 1~20 数值的 FM 色阶 */
 function attrClass(v){
   if(v<=5) return 'lv-poor';
   if(v<=10) return 'lv-normal';
@@ -470,7 +581,7 @@ function attrClass(v){
   return 'lv-elite';
 }
 
-/* ---------- 生涯页 ---------- */
+/* ---------- 生涯页（每场同步更新） ---------- */
 function renderCareer(){
   const c=$('#career-summary');
   const avg=G.careerStats.ratings.length?
@@ -492,7 +603,9 @@ function renderCareer(){
     tbl.innerHTML='<tr><th>赛季</th><th>俱乐部</th><th>出场</th><th>球</th><th>助</th><th>评分</th><th>排名</th></tr>';
     G.history.forEach(h=>{
       const tr=document.createElement('tr');
-      let stand=h.standing===1?'1（冠军）':h.standing;
+      let stand=h.loanReturn?'租借':
+        h.standing===1?'1（冠军）':
+        (typeof h.standing==='number'?h.standing:'—');
       if(h.promoted) stand+=' 升'; if(h.relegated) stand+=' 降';
       tr.innerHTML=`<td>${h.season}</td><td>${h.club}</td><td>${h.apps}</td><td>${h.goals}</td><td>${h.assists}</td><td>${h.avgRating||'—'}</td><td>${stand}</td>`;
       tbl.appendChild(tr);
@@ -639,7 +752,7 @@ async function renderBeat(b,token){
     const waitRow=km && km.querySelector('.km-waiting');
     if(waitRow) waitRow.remove();
     const cls=b.highlight==='goal'?'goal':b.highlight==='assist'?'assist':b.highlight==='save'?'save':b.highlight==='block'?'block':b.highlight==='bad'?'bad':'good';
-    const badge=b.highlight==='goal'?'⚽ 进球':b.highlight==='assist'?'🅰 助攻':b.highlight==='save'?'🧤 扑救':b.highlight==='block'?'🛡 关键防守':b.highlight==='bad'?'':'';
+    const badge=b.highlight==='goal'?'进球':b.highlight==='assist'?'助攻':b.highlight==='save'?'扑救':b.highlight==='block'?'关键防守':b.highlight==='bad'?'':'';
     const slot=km && km.querySelector('.km-outcome-slot');
     if(slot){
       slot.innerHTML=`<div class="km-outcome ${cls}">${badge?`<span class="event-badge">${badge}</span>`:''}<span>${b.outcome}</span></div>`;
@@ -674,9 +787,8 @@ function renderFinal(m){
   const defensive=G.position==='门将'?`<div class="fg-item"><b>${m.saves}</b><span>扑救</span></div>`
     :`<div class="fg-item"><b>${m.tackles}</b><span>关键防守</span></div>`;
   const extra=[
-    ...(matchState.ups||[]).map(u=>`赛中成长：${ATTR_LABEL[u.k]}升至 ${u.level} 级`),
-    ...(matchState.unl||[]).map(u=>`成就解锁：${u.name}`),
-    m.injured>0?`赛后检查：肌肉不适，预计伤停 ${m.injured} 周。`:''
+    ...(matchState.ups||[]).map(u=>`通用成长：${ATTR_LABEL[u.k]}升至 ${u.level} 级`),
+    ...(matchState.unl||[]).map(u=>`成就解锁：${u.name}`)
   ];
   setHud(90,m.score,m.rating);
   stage(`<div class="stage center">
@@ -692,7 +804,7 @@ function renderFinal(m){
         <div class="fg-item"><b>${m.keyPasses}</b><span>关键传球</span></div>
         ${defensive}
       </div>
-      <div class="final-note">${m.subbed?`第 ${m.subMinute} 分钟被换下`:(m.starter?'打满全场':`第 ${m.onMinute} 分钟替补登场`)} · 赛后体能 ${Math.round(m.fitAfter)}%</div>
+      <div class="final-note">${m.subbed?`第 ${m.subMinute} 分钟被换下`:(m.starter?'打满全场':`第 ${m.onMinute} 分钟替补登场`)} · 赛后体能 ${Math.round(m.fitAfter)}% · 状态 ${Math.round(G.form*100)}%</div>
       ${extra.length?`<div class="final-extra">${extra.join('<br>')}</div>`:''}
     </div>
   </div>`);

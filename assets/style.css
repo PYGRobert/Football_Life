@@ -60,7 +60,9 @@ body{
 .meters{display:flex;gap:10px;margin-top:8px;font-size:10px;color:#7f939f}
 .meters>div{flex:1}
 .meters b{color:#dbe7ef;font-weight:600}
-#injury-banner{background:#7f1d1d;color:#fecaca;font-size:12px;padding:7px 16px;display:none}
+.icon-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.28);color:#fff;
+  border-radius:10px;padding:5px 9px;font-size:13px;cursor:pointer;font-family:inherit;line-height:1}
+.icon-btn:active{transform:scale(.96)}
 
 /* ---- 主界面 2×2 方格 ---- */
 .home-body{padding:12px 14px 88px}
@@ -80,15 +82,27 @@ body{
 .tile.t-train::after{background:rgba(240,165,0,.1)}
 .tile.t-data::after{background:rgba(59,130,246,.08)}
 .tile.t-career::after{background:rgba(180,83,9,.08)}
+.tile.t-play{cursor:default}
+.tile.t-play:active{transform:none;box-shadow:0 2px 10px rgba(16,40,60,.06)}
 .t-head{display:flex;justify-content:space-between;align-items:center}
 .t-name{font-size:14px;font-weight:800;color:var(--green-d);letter-spacing:1px}
-.t-icon{font-size:16px;opacity:.75}
 .t-main{font-size:26px;font-weight:800;color:var(--txt);margin-top:8px;line-height:1.1;position:relative;z-index:1}
 .t-main.small{font-size:17px;line-height:1.3;margin-top:10px}
 .t-sub{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45;position:relative;z-index:1}
 .t-foot{margin-top:auto;font-size:11px;font-weight:700;color:var(--green);position:relative;z-index:1}
 .t-foot.warn{color:#b45309}
 .t-foot.off{color:var(--muted);font-weight:400}
+/* 数据 / 生涯：两个约半高的长方框，垂直排列在原生涯方格位置（中间留间隔） */
+.t-col{position:relative;display:flex;flex-direction:column;gap:10px;
+  width:100%;max-width:var(--tile-max,calc((100dvh - 315px)/2));justify-self:center;
+  aspect-ratio:1/1;min-height:0}
+.tile.t-half{aspect-ratio:auto;flex:1 1 0;min-height:0;padding:9px 13px 8px}
+.tile.t-half .t-line{margin-top:6px;white-space:normal;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.t-more{font-size:10px;font-weight:700;color:var(--green);letter-spacing:.5px}
+.t-line{font-size:12px;font-weight:700;color:var(--txt);line-height:1.4;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative;z-index:1}
+.t-line b{font-weight:800}
 
 /* ---- 卡片 ---- */
 .card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 1px 4px rgba(16,40,60,.06)}
@@ -115,7 +129,6 @@ body{
 .cat-btn.active{border-color:var(--green);background:#eaf6f0;box-shadow:inset 0 0 0 1px var(--green)}
 #train-cats .cat-btn:last-child{grid-column:span 2}
 .cat-name{font-size:13px;font-weight:700;color:var(--txt)}
-.cat-ico{font-size:13px;margin-right:3px}
 .cat-desc{font-size:10px;color:var(--muted);line-height:1.3}
 .int-row{display:flex;gap:6px;margin-bottom:9px}
 .int-btn{flex:1;padding:8px 2px;border:1px solid var(--line);border-radius:9px;background:#fff;
@@ -123,17 +136,19 @@ body{
   transition:background .15s,color .15s;line-height:1.2}
 .int-btn.active{background:var(--dark);border-color:var(--dark);color:#fff}
 .int-btn .im{display:block;font-size:9px;font-weight:400;opacity:.7;margin-top:2px}
+#day-row{gap:4px}
+#day-row .int-btn{padding:7px 0;font-size:12px}
 .train-preview{background:#f6f9fa;border-radius:10px;padding:9px 11px;font-size:12px;
-  line-height:1.6;color:#44525e;margin-bottom:10px;min-height:52px}
+  line-height:1.6;color:#44525e;margin-bottom:10px;min-height:44px}
 .train-preview b{color:var(--green-d)}
 .train-preview .warn{color:#b45309;font-weight:600}
 .train-preview .good{color:var(--green)}
 
 /* ---- 属性页（FM 风格数值表） ---- */
-.attr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:var(--dark);
-  border-radius:12px;padding:12px 10px;margin-bottom:10px}
+.attr-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--dark);
+  border-radius:12px;padding:12px 8px;margin-bottom:10px}
 .attr-summary>div{text-align:center;color:#9fb2c0;font-size:10px;letter-spacing:1px}
-.attr-summary b{display:block;color:#fff;font-size:19px;font-weight:800;margin-top:3px;letter-spacing:0}
+.attr-summary b{display:block;color:#fff;font-size:17px;font-weight:800;margin-top:3px;letter-spacing:0}
 .attr-summary>div:last-child b{color:var(--gold)}
 .attr-note{font-size:10px;color:var(--muted);margin:0 0 10px;line-height:1.5}
 .attr-group{background:var(--dark);border-radius:12px;padding:10px 14px 6px;margin-bottom:10px}
@@ -273,10 +288,26 @@ body{
   .km-minute{font-size:34px}
 }
 
-/* ---- 转会报价 ---- */
+/* ---- 转会 / 求购 / 租借报价 ---- */
 .offer-card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.offer-kicker{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;
+  color:#b45309;background:#fef3c7;border-radius:6px;padding:2px 7px;margin-bottom:6px}
 .offer-club{font-weight:700;font-size:15px}
 .offer-row{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* ---- 存档槽 ---- */
+.slot-card{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;
+  padding:11px 13px;margin-bottom:9px;cursor:pointer;background:#fff;transition:transform .1s,border-color .15s}
+.slot-card:active{transform:scale(.99)}
+.slot-card:hover{border-color:var(--green)}
+.slot-card.empty{background:#f7fafb;cursor:default}
+.slot-card.empty:hover{border-color:var(--line)}
+.slot-no{font-size:11px;color:var(--muted);white-space:nowrap}
+.slot-info{flex:1;min-width:0}
+.slot-name{font-weight:700;font-size:14px}
+.slot-sub{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slot-act{font-size:12px;font-weight:700;color:var(--green);white-space:nowrap}
+.slot-card.empty .slot-act{color:var(--muted)}
 
 /* ---- Toast ---- */
 #toast{position:fixed;bottom:88px;left:50%;transform:translate(-50%,20px);background:rgba(16,24,32,.92);

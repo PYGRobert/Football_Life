@@ -12,7 +12,7 @@
 <section id="create" class="screen active">
   <div class="logo">
     <h1>足球人生</h1>
-    <p>FOOTBALL LIFE · 从16岁到退役的传奇之路</p>
+    <p>FOOTBALL LIFE</p>
   </div>
   <div class="form-card">
     <div class="field">
@@ -22,23 +22,18 @@
     <div class="field">
       <label>场上位置</label>
       <select id="sel-pos">
-        <option value="前锋">前锋（进球机器）</option>
-        <option value="中场">中场（组织核心）</option>
-        <option value="后卫">后卫（防线铁闸）</option>
-        <option value="门将">门将（最后一道墙）</option>
+        <option value="前锋">前锋</option>
+        <option value="中场">中场</option>
+        <option value="后卫">后卫</option>
+        <option value="门将">门将</option>
       </select>
     </div>
     <div class="field">
-      <label>你的足球起点</label>
-      <select id="sel-firsttouch">
-        <option value="0">街头野球 —— 灵性与盘带（技术+盘带+射门加成）</option>
-        <option value="1">校园球队 —— 纪律与基本功（技术+防守+耐力+决断加成）</option>
-        <option value="2">青训营 —— 系统训练（速度+技术+力量+传球加成，声望起步高）</option>
-        <option value="3">对着墙练球 —— 金左脚（技术+射门+冷静加成）</option>
-      </select>
+      <label>足球起点</label>
+      <select id="sel-firsttouch"></select>
     </div>
     <button id="btn-start" class="btn primary">开始职业生涯</button>
-    <button id="btn-continue" class="btn ghost" style="display:none">继续上次存档</button>
+    <button id="btn-load" class="btn ghost" style="display:none">读取存档</button>
   </div>
 </section>
 
@@ -49,16 +44,15 @@
       <div><span id="v-name">—</span><span id="v-pos">—</span></div>
       <div class="tb-right">
         <div id="v-age">—</div>
-        <button id="btn-achv" class="trophy-btn" title="成就">🏆<span id="achv-badge">0</span></button>
+        <button id="btn-achv" class="trophy-btn" title="成就">成就<span id="achv-badge">0</span></button>
+        <button id="btn-menu" class="icon-btn" title="返回主菜单">菜单</button>
       </div>
     </div>
     <div id="v-club">—</div>
     <div class="tb-row2">
       <span>综合 <b id="v-ca">—</b></span>
-      <span>有效 <b id="v-eff">—</b></span>
       <span>身价 <b id="v-value">—</b></span>
       <span>声望 <b id="v-rep">—</b></span>
-      <span>士气 <b id="v-morale">—</b></span>
     </div>
     <div class="meters">
       <div>体能 <b id="v-fit">—</b><div class="meter" id="bar-fitness"><i></i></div></div>
@@ -66,35 +60,38 @@
     </div>
     <div id="v-season">—</div>
   </header>
-  <div id="injury-banner"></div>
 
   <div class="home-body">
     <div class="home-hint" id="home-hint">—</div>
     <div class="tiles">
       <button class="tile t-attr" data-panel="ov-attr">
-        <div class="t-head"><span class="t-name">属性</span><span class="t-icon">📊</span></div>
+        <div class="t-head"><span class="t-name">属性</span></div>
         <div class="t-main" id="tile-ca">—</div>
-        <div class="t-sub" id="tile-attr-sub">综合 / 潜力</div>
-        <div class="t-foot">能力与体能影响 ›</div>
+        <div class="t-sub" id="tile-attr-sub">—</div>
+        <div class="t-foot">相对联赛评级 ›</div>
       </button>
       <button class="tile t-train" data-panel="ov-train">
-        <div class="t-head"><span class="t-name">训练</span><span class="t-icon">⚡</span></div>
+        <div class="t-head"><span class="t-name">训练</span></div>
         <div class="t-main small" id="tile-train-main">可训练</div>
         <div class="t-sub" id="tile-train-sub">—</div>
         <div class="t-foot" id="tile-train-foot">—</div>
       </button>
-      <button class="tile t-data" data-panel="ov-data">
-        <div class="t-head"><span class="t-name">数据</span><span class="t-icon">📈</span></div>
-        <div class="t-main" id="tile-apps">—</div>
-        <div class="t-sub" id="tile-data-sub">—</div>
-        <div class="t-foot" id="tile-data-foot">—</div>
-      </button>
-      <button class="tile t-career" data-panel="ov-career">
-        <div class="t-head"><span class="t-name">生涯</span><span class="t-icon">🏅</span></div>
-        <div class="t-main small" id="tile-season">—</div>
-        <div class="t-sub" id="tile-career-sub">—</div>
-        <div class="t-foot" id="tile-career-foot">—</div>
-      </button>
+      <div class="tile t-play">
+        <div class="t-head"><span class="t-name">下一场</span></div>
+        <div class="t-main small" id="tile-role">—</div>
+        <div class="t-sub" id="tile-minutes">—</div>
+        <div class="t-foot" id="tile-play-foot">—</div>
+      </div>
+      <div class="t-col">
+        <button class="tile t-half t-data" data-panel="ov-data">
+          <div class="t-head"><span class="t-name">数据</span><span class="t-more">详情 ›</span></div>
+          <div class="t-line" id="m-data">—</div>
+        </button>
+        <button class="tile t-half t-career" data-panel="ov-career">
+          <div class="t-head"><span class="t-name">生涯</span><span class="t-more">详情 ›</span></div>
+          <div class="t-line" id="m-career">—</div>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -109,14 +106,15 @@
 <!-- ===== 属性面板 ===== -->
 <div class="overlay" id="ov-attr">
   <div class="panel">
-    <div class="panel-head"><span>属性 · 能力与体能</span><button class="panel-close" data-close="ov-attr">✕</button></div>
+    <div class="panel-head"><span>属性</span><button class="panel-close" data-close="ov-attr">×</button></div>
     <div class="panel-body">
       <div class="attr-summary">
         <div><span>综合</span><b id="data-ca">—</b></div>
         <div><span>潜力</span><b id="data-pot">—</b></div>
-        <div><span>比赛发挥</span><b id="data-eff">—</b></div>
+        <div><span>体能</span><b id="data-fit">—</b></div>
+        <div><span>状态</span><b id="data-form">—</b></div>
       </div>
-      <div class="attr-note">数值 1–20：灰 1–5 差 · 白 6–10 普通 · 黄 11–15 标准 · 绿 16–20 优秀</div>
+      <div class="attr-note">★ 综合评级：3★ = 联赛平均（50% 分位），每 10% 分位 ±0.5★ · 属性数值 1–20（FM 色阶）</div>
       <div id="attr-groups"></div>
     </div>
   </div>
@@ -125,15 +123,13 @@
 <!-- ===== 训练面板 ===== -->
 <div class="overlay" id="ov-train">
   <div class="panel">
-    <div class="panel-head"><span>训练安排</span><button class="panel-close" data-close="ov-train">✕</button></div>
+    <div class="panel-head"><span>训练安排</span><button class="panel-close" data-close="ov-train">×</button></div>
     <div class="panel-body">
       <h3 id="train-week">—</h3>
       <div class="cat-grid" id="train-cats"></div>
-      <div class="int-row" id="intensity-row"></div>
-      <div class="muted" style="margin:-3px 0 9px;font-size:10px">强度越高，体能消耗与训练收益同步放大；强化特训收益最高，但有受伤风险。</div>
+      <div class="int-row" id="day-row"></div>
       <div class="train-preview" id="train-preview">—</div>
       <button id="btn-train" class="btn primary" style="background:var(--green);color:#fff">开始训练</button>
-      <p class="muted" style="margin-top:12px;font-size:10px;line-height:1.6">训练先扣除体能，再恢复到下一场开场目标：轻度 <b>100%</b> · 普通 <b>95%</b> · 强化 <b>82%</b>。不训练则赛前恢复到 100%。</p>
     </div>
   </div>
 </div>
@@ -141,7 +137,7 @@
 <!-- ===== 数据面板 ===== -->
 <div class="overlay" id="ov-data">
   <div class="panel">
-    <div class="panel-head"><span>数据 · 本赛季</span><button class="panel-close" data-close="ov-data">✕</button></div>
+    <div class="panel-head"><span>数据 · 本赛季</span><button class="panel-close" data-close="ov-data">×</button></div>
     <div class="panel-body">
       <div class="grid2">
         <div class="stat-card"><div class="num" id="v-seasonapps">0</div><div class="lab">出场</div></div>
@@ -152,6 +148,7 @@
       </div>
       <h3>最近比赛</h3>
       <div id="season-log"></div>
+      <button id="btn-to-career" class="btn ghost" style="width:100%;margin-top:8px">查看生涯 ›</button>
     </div>
   </div>
 </div>
@@ -159,7 +156,7 @@
 <!-- ===== 生涯面板 ===== -->
 <div class="overlay" id="ov-career">
   <div class="panel">
-    <div class="panel-head"><span>生涯</span><button class="panel-close" data-close="ov-career">✕</button></div>
+    <div class="panel-head"><span>生涯</span><button class="panel-close" data-close="ov-career">×</button></div>
     <div class="panel-body">
       <h3>生涯总览</h3>
       <div id="career-summary"></div>
@@ -167,6 +164,7 @@
       <div id="trophies-list"></div>
       <h3>赛季履历</h3>
       <div id="career-history"></div>
+      <button id="btn-to-data" class="btn ghost" style="width:100%;margin-top:8px">查看数据 ›</button>
     </div>
   </div>
 </div>
@@ -174,7 +172,7 @@
 <!-- ===== 成就面板 ===== -->
 <div class="overlay" id="ov-achv">
   <div class="panel">
-    <div class="panel-head"><span>成就殿堂</span><button class="panel-close" data-close="ov-achv">✕</button></div>
+    <div class="panel-head"><span>成就殿堂</span><button class="panel-close" data-close="ov-achv">×</button></div>
     <div class="panel-body">
       <div id="achv-head">
         <span class="muted">解锁进度</span>
@@ -205,8 +203,19 @@
 <!-- ===== 转会层 ===== -->
 <div class="overlay" id="offer-layer">
   <div class="panel">
-    <div class="panel-head">转会邀请</div>
+    <div class="panel-head">报价与邀请</div>
     <div class="panel-body" id="offers-box"></div>
+  </div>
+</div>
+
+<!-- ===== 存档槽 ===== -->
+<div class="overlay" id="slot-layer">
+  <div class="panel">
+    <div class="panel-head"><span id="slot-title">存档</span><button class="panel-close" data-close="slot-layer">×</button></div>
+    <div class="panel-body">
+      <div id="slot-list"></div>
+      <button id="slot-discard" class="btn" style="display:none;width:100%;background:#e5e7eb;color:#374151;margin-top:4px">放弃本次存档</button>
+    </div>
   </div>
 </div>
 
