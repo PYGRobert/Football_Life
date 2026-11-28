@@ -101,37 +101,116 @@ function repClass(rep){
   return rep>=75?'lv-elite':rep>=55?'lv-good':rep>=35?'lv-normal':'lv-poor';
 }
 
-/* ============================================================
-   出场定位：按联赛星级（综合评价）+ 近期表现
-   tier 0: <1.5★ 边缘球员 —— 几乎没有机会
-   tier 1: 1.5~2.5★ —— 开始有替补登场机会，表现好可竞争首发
-   tier 2: 2.5~3.5★ —— 稳定首发
-   tier 3: ≥3.5★ —— 忽略评分，尽量踢满全场
-   ============================================================ */
 /* perfAvg=0 表示尚无出场记录（首秀前显示 —），未首秀时回退 6.3 中性基准 */
 function perfAvgOf(G_){ return (typeof G_.perfAvg==='number'&&G_.perfAvg>0)?G_.perfAvg:6.3; }
 function perfBoost(G_){ return clamp((perfAvgOf(G_)-6.3)*0.22,-0.12,0.25); }
 
-function appearancePlan(G_){
-  const st=caStars(calcCA(G_));
+/* 当前预估排名（赛季进行中按档位基准显示；赛季结算后取实际排名） */
+function currentStanding(G_){
+  /* 上个赛季的实际排名（若有）作为「当前排名」显示 */
+  const h=G_.history;
+  if(h&&h.length) return h[h.length-1].standing;
+  /* 无履历（首赛季）→ 档位基准四舍五入 */
+  const band=TIER_BAND_MAP[G_.clubTier][G_.clubIdx];
+  const bandDef=TEAM_BANDS.find(b=>b.id===band);
+  return Math.round(bandDef.basePos);
+}
+/* 球队档位名 */
+function teamBandName(G_){
+  const band=TIER_BAND_MAP[G_.clubTier][G_.clubIdx];
+  return TEAM_BANDS.find(b=>b.id===band).name;
+}
+
+/* ============================================================
+   球队档位与角色体系
+   每级别 8 队分 4 档：争冠集团(1队) / 中上游(2队) / 保级无忧(3队) / 力争保级(2队)
+   每队有预计排名（expectPos），你的发挥使其上下浮动 ±3。
+   角色四档（合同约定）→ 决定出场计划：
+   · 关键球员：队内核心，几乎每场首发
+   · 首发球员：稳定 11 人之一
+   · 稳定轮换：部分首发 + 部分替补登场
+   · 有用一员：替补深度，偶有登场
+   ============================================================ */
+/* 档位定义：name = 档位名；basePos = 该档基准排名；spread = 排名浮动 */
+const TEAM_BANDS=[
+  {id:'title',   name:'争冠集团', basePos:2.5, spread:1.5},
+  {id:'upper',   name:'中上游',   basePos:6,   spread:2},
+  {id:'safe',    name:'保级无忧', basePos:10,  spread:2},
+  {id:'releg',   name:'力争保级', basePos:14,  spread:2.5}
+];
+/* 8 支球队在每个级别的固定档位分布：争冠1 / 中上游2 / 保级无忧3 / 力争保级2 */
+const TIER_BAND_MAP={
+  1:['title','upper','upper','safe','safe','safe','releg','releg'],
+  2:['title','upper','upper','safe','safe','safe','releg','releg'],
+  3:['title','upper','upper','safe','safe','safe','releg','releg']
+};
+/* 角色四档 → 出场参数 */
+const ROLE_PLAN={
+  key:    {role:'关键球员', startShare:0.85, subChance:0,    subMin:0},
+  starter:{role:'首发球员', startShare:0.65, subChance:0.2,  subMin:30},
+  rotate: {role:'稳定轮换', startShare:0.32, subChance:0.5,  subMin:20},
+  squad:  {role:'有用一员', startShare:0.08, subChance:0.4,  subMin:15}
+};
+/* 连续未登场补偿：替补登场概率随连续缺席周数上升（教练不会一直完全无视替补） */
+function subChanceBoost(G_){
+  const idle=G_.idleWeeks||0;
+  if(idle<2) return 0;
+  return clamp((idle-1)*0.12,0,0.45);   /* 连续缺席 2 周起每多一周 +12%，最高 +45% */
+}
+/* 按球队档位与球员综合能力决定角色（合同/赛季初刷新） */
+function calcRole(G_, bandId){
+  const st=caStars(calcCA(G_));            /* 当前星级 */
   const pb=perfBoost(G_);
-  let tier,startShare,subChance,role;
-  if(st>=3.5){ tier=3; startShare=0.99; subChance=0; role='首发核心'; }
-  else if(st>=2.5){ tier=2; startShare=clamp(0.88+pb,0.7,0.98); subChance=0; role='主力首发'; }
-  else if(st>=1.5){
-    tier=1;
-    startShare=clamp(0.28+pb,0.15,0.6);
-    subChance=clamp(0.6+pb,0.45,0.9);
-    role=pb>0.08?'首发竞争':'替补待命';
-  }else{ tier=0; startShare=0.12; subChance=0; role='边缘球员'; }
-  /* 预期上场时间 = 首发概率 × 首发平均分钟 + (1−首发概率) × 替补登场率 × 替补平均分钟
-     · 替补登场时间 U(56,80) → 平均第 68 分钟上场，实际踢 22 分钟；
-     · 首发在 tier<3 时有被换下风险（半场体能/连续低分），按平均 85 分钟计；tier3 踢满 90。 */
-  const starterMin=tier===3?90:85;
-  const benchMin=22;
-  let expect=startShare*starterMin+(1-startShare)*subChance*benchMin;
-  expect=Math.round(expect/5)*5;
-  return {st,tier,startShare,subChance,role,expectMinutes:clamp(expect,0,90)};
+  /* 球员在球队内的相对档次：星级相对联赛平均（2.5★ 中位起点）+ 表现加成
+     注：星级 3★=联赛平均 → strength 0.5 = 中位；家乡出身（中乙 2.5★）在保级队中即是合格首发 */
+  const strength=st-2+pb;                  /* 以 2★ 为零点（低级别平均线更低） */
+  /* 各档位球队对角色的要求（strength 基准）：
+     争冠集团要求 1.2 / 中上游 0.6 / 保级无忧 0 / 力争保级 -0.6 */
+  const bandReq={title:1.2, upper:0.6, safe:0, releg:-0.6}[bandId]||0;
+  const gap=strength-bandReq;              /* >0 = 强于球队要求 */
+  let roleId;
+  if(gap>=1.0) roleId='key';
+  else if(gap>=0.2) roleId='starter';
+  else if(gap>=-0.6) roleId='rotate';
+  else roleId='squad';
+  /* 生涯起步保护：赛季数 <2 时角色最多「稳定轮换」（青训/天才不能一上来就首发）
+     家乡球员（描述为「常规首发」）首季上限 = starter：是即战力但还不是球队核心 */
+  const isHometown=G_.origin==='hometown';
+  if(!isHometown && G_.season<=1 && (roleId==='key'||roleId==='starter')){
+    roleId='rotate';
+    if(gap<-0.5) roleId='squad';
+  }
+  /* 家乡首季：常规首发（不直接当关键球员） */
+  if(isHometown && G_.season<=1 && roleId==='key') roleId='starter';
+  return roleId;
+}
+/* 角色重算（赛季开始 / 签约时 / 表现大幅变化后调用） */
+function refreshRole(G_){
+  const band=TIER_BAND_MAP[G_.clubTier][G_.clubIdx];
+  const roleId=calcRole(G_,band);
+  if(G_.roleId!==roleId){
+    G_.rolePrev=G_.roleId||roleId;
+    G_.roleId=roleId;
+  }
+  return roleId;
+}
+/* 出场计划：以角色为基础，近期表现微调首发率 */
+function appearancePlan(G_){
+  const base=ROLE_PLAN[G_.roleId]||ROLE_PLAN.squad;
+  const pb=perfBoost(G_);
+  /* 表现对首发率的影响收敛（0.5→0.3），避免表现好时预期与实际脱节的正反馈 */
+  let startShare=clamp(base.startShare+pb*0.3,0.05,0.95);
+  /* 连续未登场 → 替补登场率上升（教练不会一直无视替补） */
+  const subChance=clamp(base.subChance+subChanceBoost(G_),0,0.9);
+  /* 预期上场时间：含未登场/轮休概率 */
+  const expect=startShare*88+(1-startShare)*subChance*base.subMin;
+  return {
+    role:base.role, roleId:G_.roleId,
+    st:caStars(calcCA(G_)),   /* UI 显示用星级 */
+    startShare, subChance,
+    expectMinutes:clamp(Math.round(expect/5)*5,0,90),
+    tier:startShare>=0.7?3:startShare>=0.35?2:startShare>=0.15?1:0
+  };
 }
 
 /* ---------- 新游戏（FM 式 0~200 CA 体系） ----------
@@ -144,9 +223,12 @@ function appearancePlan(G_){
    · 属性 = CA 预算按权重分配：attr[k] = 20×CA份额/权重，允许短板 2~9
    · 特点领域属性保底 10~13（特点可辨，身份描述的一部分） */
 const ORIGIN_CA={
-  youth:   {ca:[104,116], tier:2},   /* 中甲 1.5★ */
-  genius:  {ca:[96,108],  tier:2},   /* 中甲 1.0★（偏科分布） */
-  hometown:{ca:[88,100],  tier:3}    /* 中乙 2.5★ */
+  /* 按联赛高斯分布的分位（用户区间 mean±3sd → sd 10/10/13）:
+     家乡 中乙 3★(50%分位) = 74~86；青训 中甲 1.5★(20%分位) = 92~100；
+     天才 中甲 1.0★(10%分位) = 86~94 */
+  youth:   {ca:[92,100], tier:2},
+  genius:  {ca:[86,94],  tier:2},
+  hometown:{ca:[74,86],  tier:3}
 };
 
 /* 小幅随机扰动：±30% */
@@ -168,10 +250,17 @@ const ORIGIN_RATIO={
   genius:  {special:6,  othersRandom:4},            /* 其余两项合计 4 随机分 */
   hometown:{special:[3,5], othersRandom:[5,7]}      /* 专项 3~5，其余合计 5~7 */
 };
-/* 出身 → 属性值域 */
+/* 出身 → 属性值域（基于联赛 CA 高斯分布对应的属性主域）：
+   中乙 mean80 → 属性 5~11，值域 1~12；中甲 mean110 → 属性 8~14，值域 6~15 */
 function originAttrRange(origin){
-  return origin==='hometown'?{min:1,max:10}:{min:6,max:15};
+  return origin==='hometown'?{min:1,max:12}:{min:6,max:15};
 }
+/* 出身 → 初始属性主域（高权重属性的目标均值区间，供配比分配使用） */
+const ORIGIN_ATTR_BAND={
+  hometown:{lo:5, hi:11},    /* 中乙均值 8 */
+  youth:   {lo:9, hi:13},    /* 中甲均值 11 */
+  genius:  {lo:7, hi:12}     /* 中甲偏科：长板高短板低，均值同青训 */
+};
 /* 属性 → 领域映射（与 TRAIT_OPTIONS 的 groups 同源） */
 const ATTR_DOMAIN={
   technique:'tech',passing:'tech',finishing:'tech',heading:'tech',attack:'tech',
@@ -227,16 +316,24 @@ function genAttrByCA(skel){
     share[others[0]]=targetCA*ratio.others[0]/10;
     share[others[1]]=targetCA*ratio.others[1]/10;
   }
-  /* 承载上限溢出回流 */
-  ['tech','mind','body'].forEach(d=>{
-    const cap=capOf(d);
-    if(share[d]>cap){
-      const overflow=share[d]-cap;
-      share[d]=cap;
-      const receivers=['tech','mind','body'].filter(x=>x!==d&&share[x]<capOf(x));
-      receivers.forEach(x=>{ share[x]+=overflow*(capOf(x)-share[x])/Math.max(1,receivers.reduce((s,y)=>s+capOf(y)-share[y],0)); });
-    }
-  });
+  /* 承载上限溢出回流：迭代至收敛（接收方超 cap 时继续向下游转移） */
+  for(let pass=0; pass<6; pass++){
+    let moved=false;
+    ['tech','mind','body'].forEach(d=>{
+      const cap=capOf(d);
+      if(share[d]>cap+0.01){
+        const overflow=share[d]-cap;
+        share[d]=cap;
+        const receivers=['tech','mind','body'].filter(x=>x!==d&&share[x]<capOf(x)-0.01);
+        const room=receivers.reduce((s,y)=>s+(capOf(y)-share[y]),0);
+        if(room>0.01){
+          receivers.forEach(x=>{ share[x]+=overflow*(capOf(x)-share[x])/Math.max(1,room); });
+          moved=true;
+        }
+      }
+    });
+    if(!moved) break;
+  }
 
   /* 2. 领域内属性分配
      领域 CA = Σ(v_k/20 × w_k) × 200 → 领域内等权重的属性等值：
@@ -293,7 +390,7 @@ function newGame(name, pos, originId, traitId){
     duty:origin.name,               /* duty 字段改存出身名（兼容存档展示） */
     origin:origin.id,
     trait:traitId||null,
-    age:16,
+    age:18,
     season:1,
     attr, xp,
     attrVersion:3,
@@ -304,9 +401,14 @@ function newGame(name, pos, originId, traitId){
     fitness:100,
     seasonMeanMul:1,
     clubIdx: ri(0,7), clubTier:origin.tier,
+    /* 家乡球员：只在保级无忧/力争保级档的弱队开局（idx 3~7）——
+       业余出身从弱队起步，「定位首发」承诺才成立 */
+    ...(origin.id==='hometown'?{clubIdx:ri(3,7)}:{}),
     contractYears:2,
     salary:25,
     marketValue:60,
+    roleId:null, rolePrev:null,
+    injuryRisk:0, injuredWeeks:0, injuryName:null, injuryLevel:null, idleWeeks:0,
     seasonStats:{apps:0,goals:0,assists:0,ratings:[],motm:0},
     careerStats:{apps:0,goals:0,assists:0,cleanSheets:0,motm:0,ratings:[],seasons:0},
     trophies:[],
@@ -381,6 +483,90 @@ function dayXpMul(days){
   return s;
 }
 
+/* ============================================================
+   伤病系统
+   伤病风险 0~200%（G.injuryRisk，初始 100）：
+   · 判定节点 = 比赛中场 / 比赛终场 / 每个训练日；休息日降风险
+   · 基准 100%：轻微 30% / 中等 15% / 严重 5% / 可怖 1%
+   · 200% 时：轻微 60% / 中等 40% / 严重 20% / 可怖 5%
+   · 四档对应恢复 1~3 / 4~8 / 9~16 / 17~54 周；严重起一次性掉 CA
+   · 伤病期间 form 每日下滑至 0
+   ============================================================ */
+const INJURY_POOL={
+  minor:['脚踝扭伤','轻微拉伤','擦伤淤肿','手指挫伤','轻微脑震荡观察'],
+  moderate:['大腿肌肉拉伤','膝盖韧带轻度损伤','肋骨骨裂','肩关节脱臼','腹股沟拉伤'],
+  severe:['十字韧带撕裂（部分）','跟腱断裂','胫骨骨折','严重膝盖半月板损伤','椎间盘突出'],
+  catastrophic:['完全性十字韧带断裂','复杂性骨折','严重跟腱断裂','多韧带损伤','应力性骨折反复']
+};
+/* 四档触发概率（每周单次判定用）：
+   risk 0 → 无伤；risk 100 → 基准（轻微6/中等2/严重0.8/可怖0.15）；
+   risk 200 → 顶格（轻微18/中等6/严重3/可怖0.6）
+   每周两次判定（训练周终 + 比赛终场），目标赛季约 1~2 次缺阵伤 */
+function injuryRoll(risk){
+  const t=clamp(risk/100,0,2);
+  const p={
+    minor:  t<=1 ? 0.06*t       : 0.06+(0.18-0.06)*(t-1),
+    moderate:t<=1 ? 0.02*t      : 0.02+(0.06-0.02)*(t-1),
+    severe: t<=1 ? 0.008*t      : 0.008+(0.03-0.008)*(t-1),
+    catastrophic:t<=1 ? 0.0015*t : 0.0015+(0.006-0.0015)*(t-1)
+  };
+  const r=rnd();
+  if(r<p.catastrophic) return {level:'catastrophic',name:pick(INJURY_POOL.catastrophic),weeks:ri(17,54)};
+  if(r<p.catastrophic+p.severe) return {level:'severe',name:pick(INJURY_POOL.severe),weeks:ri(9,16)};
+  if(r<p.catastrophic+p.severe+p.moderate) return {level:'moderate',name:pick(INJURY_POOL.moderate),weeks:ri(4,8)};
+  if(r<p.catastrophic+p.severe+p.moderate+p.minor) return {level:'minor',name:pick(INJURY_POOL.minor),weeks:ri(1,3)};
+  return null;
+}
+/* 伤病判定（在指定节点调用）：
+   ctx = {node:'halftime'|'fulltime'|'training'}
+   轻微伤（minor）= 1~3 天小伤：不缺阵，仅提示并小幅降状态；
+   中等及以上才进入缺阵流程 */
+function injuryCheck(G_, node){
+  if(G_.injuredWeeks>0) return null;   /* 已在伤病中，不叠加 */
+  const inj=injuryRoll(G_.injuryRisk||0);
+  if(!inj) return null;
+  /* 轻微伤：不缺阵，状态小幅下滑 + 风险重置部分 */
+  if(inj.level==='minor'){
+    G_.form=clamp((G_.form||0.5)-0.08,0,1);
+    G_.injuryRisk=clamp((G_.injuryRisk||0)-30,0,200);
+    return Object.assign(inj,{minorOnly:true});
+  }
+  G_.injuredWeeks=inj.weeks;
+  G_.injuryName=inj.name;
+  G_.injuryLevel=inj.level;
+  /* 严重及以上：一次性掉 CA（随机抽属性，掉 2~4 点） */
+  if(inj.level==='severe'||inj.level==='catastrophic'){
+    const keys=ATTRS_BY_POS[G_.position];
+    const dropN=inj.level==='catastrophic'?ri(3,4):ri(2,3);
+    const dropped=[];
+    for(let i=0;i<dropN;i++){
+      const k=pick(keys);
+      if(G_.attr[k]>2){ G_.attr[k]--; dropped.push(ATTR_LABEL[k]); }
+    }
+    inj.dropped=dropped;
+  }
+  return inj;
+}
+/* 休息日降风险 / 训练比赛升风险；无自然回归（0 = 完全健康基准，伤病结束后可降到 0） */
+function injuryRiskShift(G_, kind){
+  const shifts={rest:-12, training:+8, match:+16, halftime:+6, fulltime:+10};
+  const r=(G_.injuryRisk||0)+(shifts[kind]||0);
+  G_.injuryRisk=clamp(Math.round(r),0,200);
+}
+/* 伤病周推进：伤病期间 form 每日下滑；伤病痊愈时风险一次性归 0（完全康复） */
+function injuryWeekTick(G_, restDays){
+  if(G_.injuredWeeks>0){
+    G_.injuredWeeks--;
+    G_.form=clamp((G_.form||0.5)-restDays*0.15,0,0.1);   /* 伤病期间状态快速下滑 */
+    if(G_.injuredWeeks===0){
+      G_.injuryName=null; G_.injuryLevel=null;
+      G_.injuryRisk=0;   /* 痊愈 → 风险归零 */
+    }
+    return true;
+  }
+  return false;
+}
+
 /* 自动选择当前最薄弱、且与位置职能相关的训练模块 */
 function autoTrainCategory(){
   if(!G) return TRAIN_CATS['中场'][0].id;
@@ -416,6 +602,11 @@ function doTraining(catId, days){
   if(G.retired) return {msg:'你已经退役了。',ok:false};
   if(viewRound>=fixtures.length) return {msg:'本赛季已经结束，先进行赛季结算吧。',ok:false};
   if(G.roundTrained===viewRound) return {msg:'本周已经安排过训练了，先出战比赛或结束赛季吧。',ok:false};
+  /* 伤病中无法训练 */
+  if(G.injuredWeeks>0){
+    G.roundTrained=viewRound;
+    return {msg:`伤病恢复中（${G.injuryName}，还剩 ${G.injuredWeeks} 周），本周无法训练。`,ok:false,injured:true};
+  }
 
   days=clamp(Math.round(typeof days==='number'?days:3),0,WEEK_DAYS);
   const cats=TRAIN_CATS[G.position]||TRAIN_CATS['中场'];
@@ -425,6 +616,12 @@ function doTraining(catId, days){
   const restRec=FIT_RECOVER_REST_DAY*restDays;
   const before=G.fitness;
   G.fitness=clamp(before+trainRec+restRec,0,100);
+
+  /* 伤病风险：每个训练日 +8，每个休息日 −12（风险累积，不逐日判定） */
+  for(let i=0;i<days;i++) injuryRiskShift(G,'training');
+  for(let i=0;i<restDays;i++) injuryRiskShift(G,'rest');
+  /* 周终单次判定（训练侧） */
+  const injured=injuryCheck(G,'training');
 
   const ups=[];
   let mul=0, lm=1;
@@ -455,6 +652,11 @@ function doTraining(catId, days){
   }
   if(ups.length) msg+=ups.map(u=>` ${ATTR_LABEL[u.k]}升至 ${u.level} 级！`).join('');
   else if(days>0) msg+=' 属性稳步积累。';
+  if(injured){
+    msg+=`\n【伤病】${injured.name}（${injured.weeks} 周）！`;
+    if(injured.dropped&&injured.dropped.length) msg+=` 属性受损：${injured.dropped.join('/')}`;
+    if(injured.level==='catastrophic') msg+=' 这可能是改变生涯轨迹的重伤……';
+  }
   if(G.fitness<30) msg+=`\n体能偏低（${Math.round(G.fitness)}），比赛发挥会受影响。`;
   return {msg,ok:true,ups,days};
 }
@@ -553,7 +755,7 @@ function simMatch(G_, opp, isHome){
   const starter=rnd()<appsShare;
 
   let benchOn=false, onMinute=0;
-  if(!starter && plan.tier>=1){
+  if(!starter){
     const subChance=plan.subChance*(fitBefore>=45?1:0.65);
     if(rnd()<subChance){ benchOn=true; onMinute=ri(56,80); }
   }
@@ -643,12 +845,14 @@ function simMatch(G_, opp, isHome){
   for(const item of timeline){
     if(subbed && item.kind==='key') continue;
 
-    /* 半场节点（仅首发） */
+    /* 半场节点（仅首发）：伤病风险累积（判定统一放在终场，避免一场两掷） */
     if(!benchOn && !halftimeDone && item.minute>45){
       drainTo(45);
       halftimeDone=true;
+      injuryRiskShift(G_,'halftime');
       beats.push({type:'halftime',minute:45,score:[score[0],score[1]],rating,fit,
-        text:`半场结束，比分 ${scoreTxt()}，你的实时评分 ${rating.toFixed(1)}。`});
+        text:`半场结束，比分 ${scoreTxt()}，你的实时评分 ${rating.toFixed(1)}。`,
+        injury:null});
       if(plan.tier<3 && (fit<40 || lowTwo())){
         doSub(45, fit<40?'体能透支':'表现不佳');
         if(item.kind==='key') continue;
@@ -910,10 +1114,21 @@ function simMatch(G_, opp, isHome){
   rating=clamp(Math.round(rating*10)/10,RR2.min||4.5,10);
   const motm=rating>=8.2 && rnd()<0.6;
 
+  /* 终场伤病判定（未因伤下场时） */
+  let ftInj=null;
+  if(!G_.matchInjury){
+    injuryRiskShift(G_,'fulltime');
+    ftInj=injuryCheck(G_,'fulltime');
+    if(ftInj) G_.matchInjury=ftInj;
+  }
+  const matchInjury=G_.matchInjury;
+  G_.matchInjury=null;   /* 读取后清空 */
+
   beats.push({
     type:'fulltime',minute:90,score:[score[0],score[1]],rating,motm,
     minutes,goals,assists,keyPasses,saves,tackles,
-    subbed,subMinute,win,draw
+    subbed,subMinute,win,draw,
+    injury:matchInjury?{name:matchInjury.name,weeks:matchInjury.weeks,level:matchInjury.level,dropped:matchInjury.dropped||null}:null
   });
 
   return {
@@ -961,24 +1176,37 @@ function recordMatch(m){
 
 /* 状态(form)结算：训练天数 + 上场时间直接挂钩 */
 function applyWeekResult(m, daysTrained){
+  /* 伤病周推进：伤中则本周直接消耗，不进行比赛/成长 */
+  if(G.injuredWeeks>0){
+    injuryWeekTick(G,WEEK_DAYS);
+    G.fitness=clamp(G.fitness+FIT_RECOVER_REST_DAY*WEEK_DAYS,0,100);
+    G.roundTrained=-1;
+    return [];
+  }
   if(!(daysTrained>0)) G.form=clamp(G.form+FORM_NO_TRAIN,0,1);
   if(m.played){
     recordMatch(m);
     G.form=clamp(G.form+FORM_PLAY_PER_90*(m.minutes/90),0,1);
     /* 近期表现 EMA：影响替补登场稳定性与首发率；首秀直接取本场评分 */
     G.perfAvg=(G.perfAvg>0)?perfAvgOf(G)*0.55+m.rating*0.45:m.rating;
+    G.idleWeeks=0;   /* 登场 → 连续缺席计数清零 */
   }else{
     G.form=clamp(G.form+FORM_NO_PLAY,0,1);
+    G.idleWeeks=(G.idleWeeks||0)+1;   /* 未登场 → 连续缺席 +1（提高替补登场率） */
     /* 尚未首秀 → 维持 0（界面显示 —） */
     if(G.perfAvg>0) G.perfAvg=perfAvgOf(G)*0.85+6.0*0.15;
   }
   G.fitness=m.fitAfter;
   G.roundTrained=-1;
+  /* 比赛伤病风险：比赛 +12（中场/终场判定已在 simMatch 内完成概率部分，
+     此处补充风险累积）；无训练周（daysTrained=0）已通过 doTraining 全休路径降风险 */
+  if(m.played) injuryRiskShift(G,'match');
+  else if(!(daysTrained>0)) injuryRiskShift(G,'rest');
   return m.played?matchGrowth(m):[];
 }
 
 /* ---------- 声望与身价 ----------
-   身价单位：€万（真实场景感：中乙轮换 30~80万，中甲主力 100~300万，
+   身价单位：￥万（真实场景感：中乙轮换 30~80万，中甲主力 100~300万，
    中超核心 500~1500万，顶级球星 3000万+） */
 function updateValue(G_){
   const ca=calcCA(G_);
@@ -991,7 +1219,7 @@ function updateValue(G_){
   v+=seasonGoals*seasonGoals*6*tierF;
   v=clamp(Math.round(v),10,50000);
   G_.marketValue=v;
-  /* 周薪（€万/年→显示为年薪万）：与身价挂钩，中乙 30~60，中超 200+ */
+  /* 周薪（￥万/年→显示为年薪万）：与身价挂钩，中乙 30~60，中超 200+ */
   G_.salary=Math.max(8,Math.round(v*0.06)+15);
 }
 
@@ -1003,6 +1231,9 @@ function advanceSeason(){
     club:clubName(G_.clubTier,G_.clubIdx), tier:G_.clubTier,
     apps:G_.seasonStats.apps, goals:G_.seasonStats.goals, assists:G_.seasonStats.assists,
     avgRating:G_.seasonStats.ratings.length?
+      Math.round(G_.seasonStats.ratings.reduce((a,b)=>a+b,0)/G_.seasonStats.ratings.length*10)/10 : 0,
+    /* S 赛季判定：场均评分 ≥7.3（本作标尺下 S 级单季表现） */
+    seasonRating:G_.seasonStats.ratings.length?
       Math.round(G_.seasonStats.ratings.reduce((a,b)=>a+b,0)/G_.seasonStats.ratings.length*10)/10 : 0
   };
   G_.history.push(seasonSummary);
@@ -1010,12 +1241,18 @@ function advanceSeason(){
   G_.careerStats.seasons=G_.history.length;
 
   const ca=calcCA(G_);
-  const tierP=[0.06,0.16,0.38];
-  const championChance=tierP[3-G_.clubTier]*(ca/20)*(0.7+G_.form*0.6);
-  let standing;
-  if(rnd()<championChance){ standing=1; }
-  else if(rnd()<0.25) standing=ri(2,4);
-  else standing=ri(5,18);
+  /* 球队排名：按球队档位基准 ± 浮动，你的发挥是唯一变量（±3）。
+     playerImpact = 你的赛季表现换算成排名偏移（好 → 上移，差 → 下移） */
+  const band=TIER_BAND_MAP[G_.clubTier][G_.clubIdx];
+  const bandDef=TEAM_BANDS.find(b=>b.id===band);
+  const playerGood=seasonSummary.apps>=5 && seasonSummary.avgRating>=6.4;
+  const playerBad=seasonSummary.apps<5 || seasonSummary.avgRating<5.9;
+  /* 影响幅度：发挥极好 +2.5 / 好 +1.5 / 中性 0 / 差 −1.5 / 极差 −2.5（排名值越小越好） */
+  const impact=seasonSummary.avgRating>=7.0?2.5:playerGood?1.5:playerBad?-1.5:(seasonSummary.avgRating<5.5?-2.5:0);
+  /* 预计排名 = 档位基准（带随机散布）；最终排名 = 预计 − 影响 + 小随机 */
+  const expectPos=bandDef.basePos+(rnd()*2-1)*bandDef.spread;
+  let standing=clamp(Math.round(expectPos-impact+(rnd()*2-1)*1),1,16);
+  /* 你所属档位的球队不降级则 17/18 名由力争保级档随机一家承担 */
   seasonSummary.standing=standing;
   if(standing===1){
     const trophy={year:2026+G_.season-1, name:tierName(G_.clubTier)+'冠军'};
@@ -1032,10 +1269,7 @@ function advanceSeason(){
     G_.clubIdx=G_.onLoan.idx;
     G_.onLoan=null;
   }else{
-    /* 个人数据三分：好（场均 ≥6.4 且出场 ≥5）/ 差（场均 <5.9 或出场 <5）/ 中性 */
-    const avgR=seasonSummary.avgRating;
-    const playerGood=seasonSummary.apps>=5 && avgR>=6.4;
-    const playerBad=seasonSummary.apps<5 || avgR<5.9;
+    /* 命运判定：用上面算好的 playerGood/playerBad */
     const fate=seasonFate({standing, playerGood, playerBad, clubTier:G_.clubTier});
     if(fate.promoted){
       G_.clubTier--; seasonSummary.promoted=true;
@@ -1053,6 +1287,9 @@ function advanceSeason(){
   G_.seasonMeanMul=0.97+rnd()*0.06;   /* 联赛水平小幅波动 ±3%（0~200 CA 体系下 ±20% 会造成星级乱跳） */
   G_.seasonStats={apps:0,goals:0,assists:0,ratings:[],motm:0};
   G_.fitness=100; G_.form=0.5; G_.month=1; G_.roundTrained=-1;
+  /* 休赛期：彻底休整 → 伤病风险归 0，伤病完全恢复 */
+  G_.injuryRisk=0;
+  if(G_.injuredWeeks>0){ G_.injuredWeeks=0; G_.injuryName=null; G_.injuryLevel=null; }
 
   if(G_.age>=30){
     const decay=G_.age>=34?ri(1,2):1;
@@ -1092,6 +1329,8 @@ function retire(G_){
   else if(score>=80) grade='C 主力球员';
   else grade='D 平凡生涯';
   G_.legacy={score:Math.round(score),grade};
+  /* 传奇退役成就：统计获得 S 级评价的赛季数（>5 个赛季，用 seasonRating 字段） */
+  G_.legacy.sSeasons=G_.history.filter(h=>h.seasonRating>=7.3).length;
 }
 
 /* ---------- 赛季命运（升降级 + 球队事件） ----------
@@ -1139,9 +1378,13 @@ function genOffers(G_){
     if(tier>G_.clubTier && rnd()<0.7) tier=G_.clubTier;
     tier=clamp(tier,1,3);
     const feeScale=0.8+rnd()*0.8+(4-tier)*0.15;
+    /* 合同角色：按球员强度相对新球队档位要求 */
+    const roleBand=TIER_BAND_MAP[tier][0];
+    const role=ROLE_PLAN[calcRole(G_,roleBand)].role;
     G_.offers.push({
       kind:'contract',
       club:clubName(tier,ri(0,7)), tier,
+      role,
       fee:Math.max(10,Math.round(G_.marketValue*feeScale)),
       salary:Math.max(G_.salary+3,Math.round(G_.marketValue*0.012*(0.9+rnd()*0.6))+8),
       years:ri(2,4)
@@ -1152,9 +1395,11 @@ function genOffers(G_){
 /* 高一级球队求购（成绩一般/冲超失败 + 数据好 → 玩家选择去/不去） */
 function genUpgradeOffer(G_){
   const tier=clamp(G_.clubTier-1,1,3);
+  const role=ROLE_PLAN[calcRole(G_,TIER_BAND_MAP[tier][ri(0,7)])].role;
   G_.offers=[{
     kind:'upgrade',
     club:clubName(tier,ri(0,7)), tier,
+    role,
     fee:Math.max(10,Math.round(G_.marketValue*(1.2+rnd()*0.8))),
     salary:Math.max(G_.salary+6,Math.round(G_.marketValue*0.014*(1+rnd()*0.6))+10),
     years:ri(2,4)
@@ -1171,9 +1416,11 @@ function genSellOffers(G_){
     let tier=G_.clubTier+(loan?(rnd()<0.7?1:-1):(rnd()<0.5?0:1));
     tier=clamp(tier,1,3);
     if(!loan && tier===G_.clubTier && rnd()<0.5) tier=clamp(G_.clubTier+(G_.clubTier>1?-1:1),1,3);
+    const role=ROLE_PLAN[calcRole(G_,TIER_BAND_MAP[tier][ri(0,7)])].role;
     G_.offers.push({
       kind:loan?'loan':'sell',
       club:clubName(tier,ri(0,7)), tier,
+      role,
       fee:loan?0:Math.max(5,Math.round(G_.marketValue*(0.5+rnd()*0.6))),
       salary:Math.max(5,Math.round(G_.marketValue*0.01*(0.8+rnd()*0.5))+6),
       years:loan?1:ri(2,3)
@@ -1200,6 +1447,7 @@ function acceptOffer(idx){
     G.salary=o.salary; G.contractYears=o.years;
     G.rep=clamp(G.rep+(o.tier<oldTier?8:2),0,100);
   }
+  if(o.role) G.roleId=Object.keys(ROLE_PLAN).find(k=>ROLE_PLAN[k].role===o.role)||G.roleId;
   G.offers=[];
 }
 
@@ -1228,11 +1476,14 @@ function checkAchievements(ctx){
   if(ctx.promoted) add('promoted');
   const st=caStars(calcCA(G));
   if(st>=4) add('ca16');
-  if(st>=4.5) add('ca18');
+  /* 家喻户晓：5★ + 效力中超（第一级别） */
+  if(st>=5 && G.clubTier===1) add('ca18');
   if(G.clubTier===1) add('big_club');
   if(G.careerStats.apps>=100) add('career_100');
-  if(G.careerStats.goals>=50) add('career_50');
-  if(G.retired && G.legacy && G.legacy.grade.startsWith('S')) add('legend');
+  /* 球王附体：生涯 100 球 + 100 助攻 */
+  if(G.careerStats.goals>=100 && G.careerStats.assists>=100) add('career_50');
+  /* 传奇退役：S 级评价持续超过 5 个赛季 */
+  if(G.retired && (G.sSeasons>=5||G.legacy&&G.legacy.sSeasons>=5)) add('legend');
   return unlocked;
 }
 

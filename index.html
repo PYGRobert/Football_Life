@@ -90,11 +90,12 @@
     <div class="tb-row2">
       <span>综合 <b id="v-ca">—</b></span>
       <span>身价 <b id="v-value">—</b></span>
-      <span>声望 <b id="v-rep">—</b></span>
+      <span id="v-injury" style="display:none"></span>
     </div>
     <div class="meters">
       <div>体能 <b id="v-fit">—</b><div class="meter" id="bar-fitness"><i></i></div></div>
       <div>状态 <b id="v-form">—</b><div class="meter" id="bar-form"><i></i></div></div>
+      <div>伤病风险 <b id="v-risk">—</b><div class="meter" id="bar-risk"><i></i></div></div>
     </div>
     <div id="v-season">—</div>
   </header>
@@ -114,12 +115,12 @@
         <div class="t-sub" id="tile-train-sub">—</div>
         <div class="t-foot" id="tile-train-foot">—</div>
       </button>
-      <div class="tile t-play">
-        <div class="t-head"><span class="t-name">下一场</span></div>
+      <button class="tile t-play" data-panel="ov-status">
+        <div class="t-head"><span class="t-name">现状</span><span class="t-more">详情 ›</span></div>
         <div class="t-main small" id="tile-role">—</div>
         <div class="t-sub" id="tile-minutes">—</div>
         <div class="t-foot" id="tile-play-foot">—</div>
-      </div>
+      </button>
       <div class="t-col">
         <button class="tile t-half t-data" data-panel="ov-data">
           <div class="t-head"><span class="t-name">数据</span><span class="t-more">详情 ›</span></div>
@@ -151,6 +152,8 @@
         <div><span>潜力</span><b id="data-pot">—</b></div>
         <div><span>体能</span><b id="data-fit">—</b></div>
         <div><span>状态</span><b id="data-form">—</b></div>
+        <div><span>伤病风险</span><b id="data-risk">—</b></div>
+        <div><span>伤病状态</span><b id="data-inj">健康</b></div>
       </div>
       <div class="attr-note">★ 综合评级：3★ = 联赛平均（50% 分位），每 10% 分位 ±0.5★ · 属性数值 1–20（FM 色阶）</div>
       <div id="attr-groups"></div>
@@ -216,7 +219,6 @@
       </div>
       <h3>最近比赛</h3>
       <div id="season-log"></div>
-      <button id="btn-to-career" class="btn ghost" style="width:100%;margin-top:8px">查看生涯 ›</button>
     </div>
   </div>
 </div>
@@ -232,7 +234,6 @@
       <div id="trophies-list"></div>
       <h3>赛季履历</h3>
       <div id="career-history"></div>
-      <button id="btn-to-data" class="btn ghost" style="width:100%;margin-top:8px">查看数据 ›</button>
     </div>
   </div>
 </div>
@@ -247,6 +248,20 @@
         <span id="achv-count">0 / 0</span>
       </div>
       <div id="achv-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 现状面板 ===== -->
+<div class="overlay" id="ov-status">
+  <div class="panel">
+    <div class="panel-head"><span>现状</span><button class="panel-close" data-close="ov-status">×</button></div>
+    <div class="panel-body">
+      <div class="st-block"><span class="st-k">球员定位</span><b class="st-v" id="st-role">—</b></div>
+      <div class="st-block"><span class="st-k">预期上场时间</span><b class="st-v" id="st-expect">—</b></div>
+      <div class="st-block"><span class="st-k">近5场评分</span><b class="st-v" id="st-recent">—</b></div>
+      <div class="st-block"><span class="st-k">教练态度</span><b class="st-v" id="st-coach">—</b></div>
+      <div class="st-block"><span class="st-k">球迷态度</span><b class="st-v" id="st-fans">—</b></div>
     </div>
   </div>
 </div>

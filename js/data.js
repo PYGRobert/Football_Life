@@ -75,9 +75,11 @@ const CLUB_TIERS=[
 ];
 
 const LEAGUE_QUALITY={
-  1:{name:'中超', mean:150, sd:25},
-  2:{name:'中甲', mean:130, sd:25},
-  3:{name:'中乙', mean:100, sd:25}
+  /* CA 高斯分布（用户设定区间 ±3sd）:
+     中乙 50~110 均值 80 / 中甲 80~140 均值 110 / 中超 110~190 均值 150 */
+  1:{name:'中超', mean:150, sd:13},
+  2:{name:'中甲', mean:110, sd:10},
+  3:{name:'中乙', mean:80, sd:10}
 };
 
 const ATTR_NORM={
@@ -101,7 +103,7 @@ const ORIGIN_OPTIONS=[
   {id:'genius', name:'天才球员', tier:2,
    desc:'天赋异禀但偏科严重，有明显的长板、属性分配不均，处于中甲（约 1★）。<br>你可以依赖长板<b>走捷径</b>快速立足，但短板将成为长期隐患；<b>也可以选择阵痛期补齐短板</b>，厚积薄发。'},
   {id:'hometown', name:'家乡球员', tier:3,
-   desc:'从业余联赛一步一个脚印踢上来的本地人，属性随机，当前处于中乙（约 2.5★）。<br>能力偏低但<b>定位首发</b>，初始赛季比赛机会更多，游戏初期体验更好。'}
+   desc:'从业余联赛一步一个脚印踢上来的本地人，属性随机，当前处于中乙（约 3★）。<br><b>定位常规首发</b>，初始赛季比赛机会更多，游戏初期体验更好。'}
 ];
 
 /* ---------- 角色创建：个人特点（对应领域初始数值更高） ----------
@@ -118,7 +120,7 @@ const TRAIT_OPTIONS=[
 /* ---------- 经验曲线（界面不显示经验数字） ----------
    FM 式指数级成长难度：每升 1 级所需经验 = base × XP_GROWTH^(等级-1)，
    等级越高成本增长越快，配合基础收入调低，避免“几个回合就满星”。 */
-const XP_GROWTH=1.45;
+const XP_GROWTH=1.75;
 /* 不同属性升级所需经验不同：身体类便宜，精神类昂贵 */
 const ATTR_XP_BASE={
   technique:16, finishing:20, composure:24, offball:20, passing:14, vision:20,
@@ -207,7 +209,7 @@ const TRAIN_FOCUS={
    （40 + 3×8 + 3×12 = 100）。
    成长不随天数线性放大：第 1 天为基准，之后按 DAY_XP_DECAY 边际递减。 */
 const WEEK_DAYS=6;
-const TRAIN_DAY_XP=2;                 /* 第 1 天的单属性基准成长（配合 learnMul 与指数曲线） */
+const TRAIN_DAY_XP=0.5;               /* 成长放缓（新联赛标尺：目标 6~8 赛季到顶级） */
 const FOCUS_BOOST=1.8;                /* 重点属性权重倍率 */
 const DAY_XP_DECAY=[1,0.85,0.75,0.7,0.65,0.6,0.55];  /* 第 n 天的边际收益（6 天合计 4.55×） */
 /* 平衡设计：休息日高恢复、训练日低恢复，训练越多比赛体能越低，
@@ -228,7 +230,7 @@ const FORM_NO_PLAY=-0.08;     /* 整场坐在替补席 */
 /* ---------- 比赛通用成长 ----------
    参赛即获得全属性等权成长：6.0 评分 / 90 分钟 = MATCH_GROWTH_BASE × 1 天训练基准
    （与训练一样乘 learnMul、ageFactor、状态系数）。 */
-const MATCH_GROWTH_BASE=1.0;
+const MATCH_GROWTH_BASE=0.35;   /* 成长放缓（新联赛标尺） */
 const MATCH_RATING_BASE=6.0;
 
 /* ---------- 比赛关键事件：位置权重 / 事件池 / 非关键点文案 ---------- */
@@ -269,18 +271,18 @@ const RATING_RULES={
     missBigChance:.20
   },
   后卫:{
-    start:6.5, min:4.5,
+    start:6.3, min:4.5,
     attack:{goal:.55, created:.10, missBig:-.15, bad:-.08},
-    offball:{good:.06, bad:-.06},
+    offball:{good:.05, bad:-.06},
     keypass:{assist:.35, created:.10, bad:-.06},  /* 后卫出球要求更高 */
-    dribble:{good:.09, bad:-.14},                 /* 后卫被断更危险 */
-    pass:  {assist:.30, good:.06, bad:-.12},
-    defend:{block:.26, good:.08, bad:-.18, concede:-.34},
+    dribble:{good:.08, bad:-.14},                 /* 后卫被断更危险 */
+    pass:  {assist:.30, good:.05, bad:-.12},
+    defend:{block:.22, good:.06, bad:-.18, concede:-.30},
     missBigChance:.15
   },
   门将:{
-    start:6.7, min:4.5,
-    save:{save:.24, good:.08, bad:-.15, concede:-.32}   /* 失球惩罚最重 */
+    start:6.3, min:4.5,
+    save:{save:.18, good:.05, bad:-.18, concede:-.30}   /* 评分压低：原 start6.7/save.24 致均评8+ */
   }
 };
 
@@ -471,10 +473,10 @@ const ACHIEVEMENTS=[
   {id:'rating_9', name:'满分表现', desc:'单场评分 9.0+'},
   {id:'season_20', name:'赛季20球', desc:'单赛季打进20球'},
   {id:'season_30', name:'金靴级', desc:'单赛季打进30球'},
-  {id:'ca16', name:'顶级球员', desc:'综合评级达到 4★'},
-  {id:'ca18', name:'世界级', desc:'综合评级达到 4.5★'},
+  {id:'ca16', name:'队内核心', desc:'综合评级达到 4★'},
+  {id:'ca18', name:'家喻户晓', desc:'综合评级达到 5★ 且效力中超'},
   {id:'big_club', name:'豪门之路', desc:'效力中超球队'},
   {id:'career_100', name:'百场先生', desc:'职业生涯出场100场'},
-  {id:'career_50', name:'生涯50球', desc:'职业生涯打进50球'},
-  {id:'legend', name:'传奇退役', desc:'以 S 级评价退役'}
+  {id:'career_50', name:'球王附体', desc:'职业生涯 100 球 + 100 助攻'},
+  {id:'legend', name:'传奇退役', desc:'超过 5 个赛季获得 S 级评价'}
 ];
