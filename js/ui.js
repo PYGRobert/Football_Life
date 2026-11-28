@@ -53,11 +53,6 @@ function bindPanels(){
   $$('.tile[data-panel]').forEach(t=>{ t.onclick=()=>openPanel(t.dataset.panel); });
   $$('.panel-close').forEach(b=>{ b.onclick=()=>closePanel(b.dataset.close); });
   $('#btn-achv').onclick=()=>openPanel('ov-achv');
-  /* 数据 ⇄ 生涯 面板互跳 */
-  const toCareer=$('#btn-to-career');
-  if(toCareer) toCareer.onclick=()=>{ closePanel('ov-data'); openPanel('ov-career'); };
-  const toData=$('#btn-to-data');
-  if(toData) toData.onclick=()=>{ closePanel('ov-career'); openPanel('ov-data'); };
   $$('.overlay').forEach(ov=>{
     ov.addEventListener('click',e=>{
       if(e.target!==ov) return;
@@ -74,6 +69,7 @@ function openPanel(id){
   else if(id==='ov-data') renderDataPanel();
   else if(id==='ov-career') renderCareer();
   else if(id==='ov-achv') renderAchv();
+  else if(id==='ov-status') renderStatusPanel();
 }
 function closePanel(id){ const el=$('#'+id); if(el) el.classList.remove('show'); }
 
@@ -243,16 +239,33 @@ function renderSlotList(){
         <div class="slot-sub">第 ${s.season} 赛季 · ${s.age} 岁 · ${s.club}${s.retired?' · 已退役':''}${when?' · '+when:''}</div>
       </div>
       <span class="slot-act">${act}</span>
+      <button class="slot-del" data-del="${s.idx}" title="删除存档">删除</button>
     </div>`;
   }).join('');
   box.querySelectorAll('.slot-card').forEach(el=>{
-    el.onclick=()=>onSlotPick(parseInt(el.dataset.idx,10));
+    el.onclick=(e)=>{
+      if(e.target.closest('.slot-del')) return;   /* 删除按钮单独处理 */
+      onSlotPick(parseInt(el.dataset.idx,10));
+    };
+  });
+  box.querySelectorAll('.slot-del').forEach(btn=>{
+    btn.onclick=(e)=>{
+      e.stopPropagation();
+      const idx=parseInt(btn.dataset.del,10);
+      openConfirm(`确定删除栏位 ${idx} 的存档？`,()=>{
+        localStorage.removeItem(slotKey(idx));
+        renderSlotList();
+        refreshMenuButtons();
+        toast(`栏位 ${idx} 存档已删除。`);
+      },{yes:'删除',no:'取消'});
+    };
   });
 }
 function onSlotPick(idx){
   if(slotMode==='load'){
     if(!loadGame(idx)){ toast('该栏位没有存档。'); return; }
     trainDays=G.trainDays||3;
+    $('#slot-layer').classList.remove('show');   /* 读取成功 → 关闭存档窗口 */
     syncSeason();
     switchScreen('main');
     renderAll();
@@ -288,6 +301,7 @@ function startSeason(){
   G.offers=[];
   G.roundTrained=-1;
   G.matchLog=[];
+  refreshRole(G);   /* 赛季开始按当前能力/球队档位刷新角色 */
 }
 function syncSeason(){
   fixtures=genFixture(G);
@@ -359,6 +373,9 @@ function openConfirm(text,onYes,opts){
   opts=opts||{};
   $('#confirm-text').textContent=text;
   $('#confirm-sub').textContent=opts.sub||'';
+  const yes=$('#confirm-yes'), no=$('#confirm-no');
+  if(opts.yes!=null) yes.textContent=opts.yes;
+  if(opts.no!=null) no.textContent=opts.no;
   const warn=$('#confirm-warn');
   if(opts.warn){
     warn.style.display='flex';
@@ -366,12 +383,13 @@ function openConfirm(text,onYes,opts){
   }else{
     warn.style.display='none';
   }
+  /* 确认框叠在存档层上方：z-index 抬高避免被遮挡 */
   $('#confirm-layer').classList.add('show');
-  $('#confirm-yes').onclick=()=>{
+  yes.onclick=()=>{
     $('#confirm-layer').classList.remove('show');
     onYes();
   };
-  $('#confirm-no').onclick=()=>{
+  no.onclick=()=>{
     $('#confirm-layer').classList.remove('show');
     if(opts.onNo) opts.onNo();
   };
@@ -563,8 +581,8 @@ function showOffers(){
     const d=document.createElement('div');
     d.className='offer-card';
     const row=o.kind==='loan'
-      ? `<div class="offer-row">租借 ${o.years} 年 · 周薪 €${o.salary}万</div>`
-      : `<div class="offer-row">${o.fee>0?`转会费 €${o.fee}万 · `:''}周薪 €${o.salary}万 · ${o.years} 年合同</div>`;
+      ? `<div class="offer-row">租借 ${o.years} 年 · 周薪 ￥${o.salary}万</div>`
+      : `<div class="offer-row">${o.fee>0?`转会费 ￥${o.fee}万 · `:''}周薪 ￥${o.salary}万 · ${o.years} 年合同</div>`;
     d.innerHTML=`<div class="offer-kicker">${info.kicker}</div>
       <div class="offer-club">${o.club} <span class="tag t${o.tier}">${tierName(o.tier)}</span></div>
       ${row}`;
@@ -625,18 +643,32 @@ function renderTop(){
   $('#v-age').textContent=G.age+' 岁';
   $('#v-club').textContent=`${clubName(G.clubTier,G.clubIdx)} · ${tierName(G.clubTier)}`;
   $('#v-ca').textContent=starsText(caStars(calcCA(G)));
-  $('#v-value').textContent='€'+(G.marketValue>=10000?(G.marketValue/10000).toFixed(1)+'亿':G.marketValue+'万');
-  const rep=$('#v-rep');
-  rep.textContent=repLabel(G.rep);
-  rep.className=repClass(G.rep);
+  $('#v-value').textContent='￥'+(G.marketValue>=10000?(G.marketValue/10000).toFixed(1)+'亿':G.marketValue+'万');
   $('#v-season').textContent=`第 ${G.season} 赛季 · 第 ${Math.min(viewRound+1,fixtures.length||1)} / ${fixtures.length||34} 轮`;
   $('#v-fit').textContent=Math.round(G.fitness)+'%';
   $('#v-form').textContent=Math.round(G.form*100)+'%';
   $('#bar-fitness>i').style.width=G.fitness+'%';
   $('#bar-form>i').style.width=(G.form*100)+'%';
+  /* 伤病风险条（0~200%，显示为百分比；色阶随风险升高） */
+  const risk=Math.round(G.injuryRisk||0);
+  $('#v-risk').textContent=risk+'%';
+  $('#v-risk').style.color=risk>=160?'var(--comic-red)':risk>=130?'var(--pop-d)':'#9fb2c0';
+  $('#bar-risk>i').style.width=clamp(risk/2,0,100)+'%';
+  $('#bar-risk>i').style.background=risk>=160?'var(--comic-red)':risk>=130?'var(--pop)':'var(--grass)';
+  /* 伤病状态显示 */
+  const injEl=$('#v-injury');
+  if(injEl){
+    if(G.injuredWeeks>0){
+      injEl.textContent=`伤病 ${G.injuredWeeks}周`;
+      injEl.style.color='var(--comic-red)';
+      injEl.style.display='inline';
+    }else{
+      injEl.style.display='none';
+    }
+  }
   $('#achv-badge').textContent=ACHIEVEMENTS.filter(a=>G.achievements&&G.achievements[a.id]).length;
-  $('#btn-match').disabled = G.retired || viewRound>=fixtures.length;
-  $('#btn-match').textContent = G.retired?'已退役':viewRound>=fixtures.length?'联赛结束':`出战 · 第${viewRound+1}轮`;
+  $('#btn-match').disabled = G.retired || viewRound>=fixtures.length || G.injuredWeeks>0;
+  $('#btn-match').textContent = G.retired?'已退役':G.injuredWeeks>0?'伤病休战':viewRound>=fixtures.length?'联赛结束':`出战 · 第${viewRound+1}轮`;
 }
 
 /* 主界面四宫格 */
@@ -655,10 +687,13 @@ function renderTiles(){
   $('#tile-train-main').textContent=trainMain;
   const cat=posTrainCats().find(c=>c.id===trainCat)||posTrainCats()[0];
   $('#tile-train-sub').textContent=`${cat.name} · ${done?(G.trainDays||0):trainDays} 天`;
-  $('#tile-train-foot').textContent=`体能 ${Math.round(G.fitness)}% · 状态 ${Math.round(G.form*100)}%`;
+  /* 伤病风险可视化：色阶随风险升高（绿→橙→红） */
+  const risk=Math.round(G.injuryRisk||0);
+  const riskColor=risk>=160?'var(--comic-red)':risk>=130?'var(--pop-d)':'var(--grass-d)';
+  $('#tile-train-foot').innerHTML=`体能 ${Math.round(G.fitness)}% · 状态 ${Math.round(G.form*100)}% · <span style="color:${riskColor}">伤病风险 ${risk}%</span>`;
   $('#tile-train-foot').className='t-foot';
 
-  /* 出场提示：下一场预期定位 + 预期上场时间 */
+  /* 出场提示：下一场预期定位 + 预期上场时间 + 球队档位/排名 */
   const plan=appearancePlan(G);
   if(G.retired || over){
     $('#tile-role').textContent='赛季结束';
@@ -667,21 +702,25 @@ function renderTiles(){
   }else{
     $('#tile-role').textContent=plan.role;
     $('#tile-minutes').textContent=`预期上场 ${plan.expectMinutes} 分钟`;
-    $('#tile-play-foot').textContent=`综合 ${starsText(plan.st)} · 近期均评 ${(G.perfAvg>0)?G.perfAvg.toFixed(1):'—'}`;
+    $('#tile-play-foot').textContent=`球队排名：第 ${currentStanding(G)} 名`;
   }
 
   /* 数据 · 生涯合并方格（上下两段） */
   const s=G.seasonStats;
   const avg=s.ratings.length?Math.round(s.ratings.reduce((a,b)=>a+b,0)/s.ratings.length*10)/10:0;
   $('#m-data').textContent=`${s.apps}场 · ${s.goals}球 · ${s.assists}助 · 均评 ${avg?avg.toFixed(1):'—'}`;
-  $('#m-career').innerHTML=`第 ${G.season} 赛季 · ${G.age} 岁 · 冠军 ${G.trophies.length} · 声望 <b class="${repClass(G.rep)}">${repLabel(G.rep)}</b>`;
+  $('#m-career').innerHTML=`第 ${G.season} 赛季 · ${G.age} 岁 · 冠军 ${G.trophies.length} · 出场 ${G.careerStats.apps}`;
 
   let hint='';
   if(G.retired){ hint='生涯已结束，可在生涯面板回顾荣誉。'; }
+  else if(G.injuredWeeks>0){
+    hint=`<b style="color:var(--comic-red)">伤病恢复中：${G.injuryName||'伤病'}（还剩 ${G.injuredWeeks} 周）</b> · 状态正在流失，休息可加速恢复`;
+  }
   else if(viewRound<fixtures.length){
     const fx=fixtures[viewRound];
-    hint=`下一场：${fx.home?'主场迎战':'客场挑战'} <b>${fx.opp}</b>`;
-  }else{
+    hint=`下一场：${fx.home?'主场迎战':'客场挑战'} <b>${fx.opp}</b> · 伤病风险 ${Math.round(G.injuryRisk||0)}%`;
+  }
+  else{
     hint='本赛季联赛已结束，点击“赛季收官”进行结算。';
   }
   $('#home-hint').innerHTML=hint;
@@ -737,12 +776,19 @@ function renderTrainUI(){
   const days=trainDays;
   const restDays=WEEK_DAYS-days;
   const after=clamp(G.fitness+FIT_RECOVER_TRAIN_DAY*days+FIT_RECOVER_REST_DAY*restDays,0,100);
+  /* 预期伤病风险：训练日 +8 / 休息日 −12（当前风险 0~200 基础上计算） */
+  const riskBefore=Math.round(G.injuryRisk||0);
+  const riskAfter=clamp(Math.round((G.injuryRisk||0)+days*8-restDays*12),0,200);
+  const riskColor=riskAfter>=160?'var(--comic-red)':riskAfter>=130?'var(--pop-d)':'var(--grass-d)';
+  const riskDelta=riskAfter-riskBefore;
+  const riskDeltaTxt=(riskDelta>=0?'+':'')+riskDelta+'%';
   const keys=ATTRS_BY_POS[G.position]||[];
   const focus=(TRAIN_FOCUS[cat.id]||[]).filter(k=>keys.indexOf(k)>=0);
   const focusTxt=focus.length?focus.map(k=>ATTR_LABEL[k]+'++').join('  '):'全属性+';
   const box=$('#train-preview');
   box.innerHTML=`<div class="tp-focus">${focusTxt}</div>
-    <div class="tp-fit"><span class="tp-label">预期体能</span><b>${Math.round(G.fitness)}% → ${Math.round(after)}%</b>${after<30?'<span class="warn"> · 赛后体能偏低</span>':''}</div>`;
+    <div class="tp-fit"><span class="tp-label">预期体能</span><b>${Math.round(G.fitness)}% → ${Math.round(after)}%</b>${after<30?'<span class="warn"> · 赛后体能偏低</span>':''}</div>
+    <div class="tp-fit"><span class="tp-label">预期伤病风险</span><b style="color:${riskColor}">${riskBefore}% → ${riskAfter}%</b><span style="font-size:11px;color:${riskDelta>0?'var(--comic-red-d)':'var(--grass-d)'}">（${riskDeltaTxt}）${riskAfter>=160?' · 极高，强烈建议全休':riskAfter>=130?' · 偏高':''}</span></div>`;
 
   const done=G.roundTrained===viewRound;
   const over=viewRound>=fixtures.length;
@@ -759,6 +805,20 @@ function renderData(){
   $('#data-pot').textContent=starsText(caStars(G.potential));
   $('#data-fit').textContent=Math.round(G.fitness)+'%';
   $('#data-form').textContent=Math.round(G.form*100)+'%';
+  /* 伤病风险（色阶）与伤病状态 */
+  const risk=Math.round(G.injuryRisk||0);
+  const riskEl=$('#data-risk');
+  riskEl.textContent=risk+'%';
+  riskEl.style.color=risk>=160?'#ff4757':risk>=130?'#f07300':'#4ade80';
+  const injEl=$('#data-inj');
+  if(G.injuredWeeks>0){
+    injEl.textContent=G.injuryName||'伤病中';
+    injEl.style.color='#ff4757';
+  }else{
+    injEl.textContent='健康';
+    injEl.style.color='';
+  }
+  renderStatusPanel();
 
   const box=$('#attr-groups'); if(!box) return;
   const groups=ATTR_GROUPS_BY_POS[G.position]||ATTR_GROUPS_BY_POS['中场'];
@@ -781,6 +841,45 @@ function attrClass(v){
   return 'lv-elite';
 }
 
+/* ---------- 现状面板：定位/预期时间/教练态度/球队定位/球迷态度 ---------- */
+function renderStatusPanel(){
+  if(!G) return;
+  const plan=appearancePlan(G);
+  $('#st-role').textContent=plan.role;
+  $('#st-expect').textContent=plan.expectMinutes+' 分钟';
+  /* 近5场评分 */
+  const recent=G.seasonStats.ratings.slice(-5);
+  const recentAvg=recent.length?(recent.reduce((a,b)=>a+b,0)/recent.length):null;
+  const rEl=$('#st-recent');
+  rEl.textContent=recentAvg==null?'—':recentAvg.toFixed(1);
+  rEl.style.color=recentAvg==null?'':recentAvg>=7?'var(--grass-d)':recentAvg<5.9?'var(--comic-red-d)':'var(--pop-d)';
+  /* 教练态度：一句话精简版 */
+  const baseCoach={key:'战术核心',starter:'稳定首发',rotate:'重要轮换',squad:'考察对象'}[G.roleId]||'';
+  let coach;
+  if(recentAvg==null){
+    coach={key:'全队围绕你展开',starter:'教练信任你',rotate:'会给你机会',squad:'证明自己'}[G.roleId]||'—';
+  }else{
+    let mood;
+    if(recentAvg>=7.5) mood='状态火热，位置稳固';
+    else if(recentAvg>=6.8) mood='表现满意，信任持续';
+    else if(recentAvg>=6.2) mood='表现合格，需更稳定';
+    else if(recentAvg>=5.6) mood='状态下滑，竞争加剧';
+    else mood='表现低迷，可能失去位置';
+    coach=`作为${baseCoach}：${mood}`;
+  }
+  $('#st-coach').innerHTML=coach;
+  /* 球迷态度：一句话精简版 */
+  const bandDef=TEAM_BANDS.find(b=>b.id===TIER_BAND_MAP[G.clubTier][G.clubIdx]);
+  const perf=bandDef.basePos-currentStanding(G);   /* 正 = 比预期好 */
+  let fans;
+  if(perf>=2) fans='远超预期，气氛火热';
+  else if(perf>=0.5) fans='成绩令人满意';
+  else if(perf>-0.5) fans='成绩符合预期';
+  else if(perf>-2) fans='低于预期，出现嘘声';
+  else fans='深陷泥潭，球迷不满';
+  $('#st-fans').innerHTML=fans;
+}
+
 /* ---------- 生涯页（每场同步更新） ---------- */
 function renderCareer(){
   const c=$('#career-summary');
@@ -792,7 +891,6 @@ function renderCareer(){
       <div class="stat-card"><div class="num">${G.careerStats.goals}</div><div class="lab">进球</div></div>
       <div class="stat-card"><div class="num">${G.careerStats.assists}</div><div class="lab">助攻</div></div>
       <div class="stat-card"><div class="num">${G.trophies.length}</div><div class="lab">冠军</div></div>
-      <div class="stat-card"><div class="num">${Math.round(G.rep)}</div><div class="lab">声望</div></div>
       <div class="stat-card"><div class="num">${avg}</div><div class="lab">生涯评分</div></div>
     </div>`;
   const hist=$('#career-history'); hist.innerHTML='';
@@ -918,9 +1016,10 @@ async function renderBeat(b,token){
     stage(`<div class="stage center">
       <div class="half-badge">半场</div>
       <div class="scene-text">${b.text}</div>
+      ${b.injury?`<div class="scene-text warn-text">伤病！${b.injury.name}（预计缺阵 ${b.injury.weeks} 周）</div>`:''}
       <div class="mini-stats">实时评分 <b>${b.rating.toFixed(1)}</b> · 体能 <b>${Math.round(b.fit)}%</b></div>
     </div>`);
-    await wait(1200);
+    await wait(b.injury?1800:1200);
   } else if(b.type==='sub'){
     stage(`<div class="stage center">
       <div class="minute-tag">${b.minute}'</div>
@@ -1010,6 +1109,7 @@ function renderFinal(m){
         ${defensive}
       </div>
       <div class="final-note">${m.subbed?`第 ${m.subMinute} 分钟被换下`:(m.starter?'打满全场':`第 ${m.onMinute} 分钟替补登场`)} · 赛后体能 ${Math.round(m.fitAfter)}% · 状态 ${Math.round(G.form*100)}%</div>
+      ${m.beats&&m.beats.length&&m.beats[m.beats.length-1].injury?`<div class="final-extra" style="border-color:var(--comic-red-d);color:var(--comic-red-d)">伤病：${m.beats[m.beats.length-1].injury.name}（缺阵 ${m.beats[m.beats.length-1].injury.weeks} 周）${m.beats[m.beats.length-1].injury.dropped?'<br>属性受损：'+m.beats[m.beats.length-1].injury.dropped.join('/'):''}</div>`:''}
       ${extra.length?`<div class="final-extra">${extra.join('<br>')}</div>`:''}
     </div>
   </div>`);
@@ -1136,4 +1236,8 @@ async function playTrainingCinematic(days,ups){
   if(token!==trainCineToken.n) return;
   layer.classList.remove('show');
   renderAll();
+  /* 训练结束后直接出战（本周未比赛时） */
+  if(viewRound<fixtures.length && G && !G.retired && G.roundTrained===viewRound){
+    playMatch(false);
+  }
 }
