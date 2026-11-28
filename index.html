@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<!-- ===== 创建角色 ===== -->
+<!-- ===== 封面（姓名 + 读取存档） ===== -->
 <section id="create" class="screen active">
   <div class="logo">
     <h1>足球人生</h1>
@@ -17,23 +17,61 @@
   <div class="form-card">
     <div class="field">
       <label>你的名字</label>
-      <input id="inp-name" type="text" maxlength="8" placeholder="留空随机生成">
+      <div class="name-row">
+        <input id="inp-name" type="text" maxlength="8" placeholder="留空随机生成">
+        <button id="btn-randname" class="btn mini" type="button">随机</button>
+      </div>
     </div>
-    <div class="field">
-      <label>场上位置</label>
-      <select id="sel-pos">
-        <option value="前锋">前锋</option>
-        <option value="中场">中场</option>
-        <option value="后卫">后卫</option>
-        <option value="门将">门将</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>足球起点</label>
-      <select id="sel-firsttouch"></select>
-    </div>
-    <button id="btn-start" class="btn primary">开始职业生涯</button>
+    <button id="btn-start" class="btn primary">进入生涯</button>
     <button id="btn-load" class="btn ghost" style="display:none">读取存档</button>
+  </div>
+</section>
+
+<!-- ===== 我的角色：分步创建向导 ===== -->
+<section id="create-wizard" class="screen">
+  <div class="wizard">
+    <div class="wiz-step" id="wiz-step">第 1 步 / 共 3 步</div>
+
+    <!-- 步骤 1：选择位置（中轴线缩写） -->
+    <div class="wiz-page active" id="wp-pos">
+      <h2 class="wiz-title">选择场上位置</h2>
+      <div class="pitch-axis">
+        <div class="axis-line"></div>
+        <button class="pos-node" data-pos="前锋"><span>FW</span><small>前锋</small></button>
+        <button class="pos-node" data-pos="中场"><span>MF</span><small>中场</small></button>
+        <button class="pos-node" data-pos="后卫"><span>DF</span><small>后卫</small></button>
+        <button class="pos-node" data-pos="门将"><span>GK</span><small>门将</small></button>
+      </div>
+    </div>
+
+    <!-- 步骤 2：选择出身 -->
+    <div class="wiz-page" id="wp-origin">
+      <h2 class="wiz-title">选择出身</h2>
+      <div class="origin-wrap">
+        <div class="origin-list" id="origin-list"></div>
+        <div class="origin-desc" id="origin-desc"></div>
+      </div>
+    </div>
+
+    <!-- 步骤 3：选择特点 -->
+    <div class="wiz-page" id="wp-trait">
+      <h2 class="wiz-title">选择你的特点</h2>
+      <div class="origin-wrap">
+        <div class="origin-list" id="trait-list"></div>
+        <div class="origin-desc" id="trait-desc"></div>
+      </div>
+    </div>
+
+    <!-- 确认页：生成球员 -->
+    <div class="wiz-page" id="wp-confirm">
+      <h2 class="wiz-title">确认你的球员</h2>
+      <div class="confirm-card" id="confirm-card"></div>
+    </div>
+
+    <div class="wiz-nav">
+      <button id="wiz-back" class="btn ghost-btn">上一步</button>
+      <button id="wiz-next" class="btn primary-btn" disabled>下一步</button>
+    </div>
   </div>
 </section>
 
@@ -99,7 +137,7 @@
   <div id="bottombar">
     <button id="btn-match" class="btn match">出战</button>
     <button id="btn-simweek" class="btn dark">模拟下一场</button>
-    <button id="btn-endseason" class="btn" style="background:var(--gold);color:#3a2800">赛季收官</button>
+    <button id="btn-endseason" class="btn" style="background:var(--pop);color:var(--ink)">赛季收官</button>
   </div>
 </section>
 
@@ -129,8 +167,38 @@
       <div class="cat-grid" id="train-cats"></div>
       <div class="int-row" id="day-row"></div>
       <div class="train-preview" id="train-preview">—</div>
-      <button id="btn-train" class="btn primary" style="background:var(--green);color:#fff">开始训练</button>
+      <button id="btn-train" class="btn primary" style="background:var(--grass);color:#fff">开始训练</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== 通用确认弹层 ===== -->
+<div class="overlay" id="confirm-layer">
+  <div class="panel confirm-panel">
+    <div class="cf-icon">!</div>
+    <div class="confirm-text" id="confirm-text">确认？</div>
+    <div class="confirm-sub" id="confirm-sub"></div>
+    <div class="confirm-warn" id="confirm-warn" style="display:none">
+      <span class="cw-badge">!</span><span id="confirm-warn-text"></span>
+    </div>
+    <div class="confirm-btns">
+      <button id="confirm-yes" class="btn small" style="background:var(--grass);color:#fff">进入比赛</button>
+      <button id="confirm-no" class="btn small" style="background:var(--bg);color:var(--ink)">返回安排训练</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 训练过场动画层 ===== -->
+<div class="overlay train-cine" id="train-cine">
+  <div class="tc-panel">
+    <div class="tc-head">
+      <span id="tc-title">本周训练</span>
+      <span id="tc-fit">体能 —</span>
+    </div>
+    <div class="tc-body" id="tc-body">
+      <div class="tc-lines" id="tc-lines"></div>
+    </div>
+    <div class="tc-scan"></div>
   </div>
 </div>
 
@@ -183,6 +251,26 @@
   </div>
 </div>
 
+<!-- ===== 赛季成绩单 ===== -->
+<div class="overlay" id="report-layer">
+  <div class="report-card">
+    <div class="rp-head">
+      <span class="rp-kicker">SEASON REPORT</span>
+      <h2 id="rp-title">赛季成绩单</h2>
+      <span id="rp-sub">—</span>
+    </div>
+    <div class="rp-rows" id="rp-rows"></div>
+    <div class="rp-grade-wrap">
+      <span class="rp-grade-label">本赛季评级</span>
+      <div id="rp-grade" class="rp-grade">—</div>
+      <div id="rp-grade-note" class="rp-grade-note"></div>
+    </div>
+    <div class="rp-foot">
+      <button id="rp-confirm" class="btn primary" style="background:var(--grass);color:#fff">确认 · 开启新赛季</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 比赛实况层 ===== -->
 <div class="overlay" id="match-layer">
   <div class="panel match-panel">
@@ -194,7 +282,7 @@
     </div>
     <div class="panel-body" id="match-lines"></div>
     <div class="panel-foot">
-      <button id="btn-match-close" class="btn primary" style="background:var(--green);color:#fff">继续</button>
+      <button id="btn-match-close" class="btn primary" style="background:var(--grass);color:#fff">继续</button>
       <button id="btn-again" class="btn" onclick="location.reload()">再踢一辈子</button>
     </div>
   </div>
@@ -214,7 +302,7 @@
     <div class="panel-head"><span id="slot-title">存档</span><button class="panel-close" data-close="slot-layer">×</button></div>
     <div class="panel-body">
       <div id="slot-list"></div>
-      <button id="slot-discard" class="btn" style="display:none;width:100%;background:#e5e7eb;color:#374151;margin-top:4px">放弃本次存档</button>
+      <button id="slot-discard" class="btn" style="display:none;width:100%;background:var(--bg);color:var(--ink);margin-top:4px">放弃本次存档</button>
     </div>
   </div>
 </div>

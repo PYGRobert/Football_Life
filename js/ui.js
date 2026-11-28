@@ -41,7 +41,6 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(matchState && matchState.playing) skipMatchPlayback();
     else closeMatchLayer();
   };
-  rebuildDutyOptions();
   refreshMenuButtons();
   /* 退出（关闭/刷新）时自动保存当前存档槽 */
   window.addEventListener('beforeunload',()=>{
@@ -78,21 +77,61 @@ function openPanel(id){
 }
 function closePanel(id){ const el=$('#'+id); if(el) el.classList.remove('show'); }
 
+/* ============================================================
+   角色创建向导：封面（姓名）→ 位置 → 出身 → 特点 → 确认生成
+   ============================================================ */
+const wiz={step:0,pos:null,origin:null,trait:null};
+const WIZ_PAGES=['wp-pos','wp-origin','wp-trait','wp-confirm'];
+const STEP_LABELS=['选择位置','选择出身','选择特点','确认生成'];
+
 function bindCreate(){
-  $('#sel-pos').onchange=()=>rebuildDutyOptions();
+  $('#btn-randname').onclick=()=>{
+    $('#inp-name').value=pick(FIRST_NAMES)+pick(GIVEN_NAMES);
+  };
   $('#btn-start').onclick=()=>{
+    $('#inp-name').value='';
+    wiz.step=0; wiz.pos=null; wiz.origin=null; wiz.trait=null;
+    switchScreen('create-wizard');
+    renderWizard();
+  };
+  $('#btn-load').onclick=()=>openSlotLayer('load');
+  $('#btn-menu').onclick=returnToMenu;
+
+  /* 位置节点 */
+  $$('.pos-node').forEach(b=>{
+    b.onclick=()=>{
+      wiz.pos=b.dataset.pos;
+      $$('.pos-node').forEach(x=>x.classList.toggle('active',x===b));
+      renderWizard();
+    };
+  });
+  /* 出身 / 特点列表 */
+  $('#origin-list').addEventListener('click',e=>{
+    const b=e.target.closest('.opt-box'); if(!b) return;
+    wiz.origin=b.dataset.id;
+    renderWizard();
+  });
+  $('#trait-list').addEventListener('click',e=>{
+    const b=e.target.closest('.opt-box'); if(!b) return;
+    wiz.trait=b.dataset.id;
+    renderWizard();
+  });
+  /* 导航 */
+  $('#wiz-back').onclick=()=>{
+    if(wiz.step===0){ switchScreen('create'); return; }
+    wiz.step--; renderWizard();
+  };
+  $('#wiz-next').onclick=()=>{
+    if(!wizNextEnabled()) return;
+    if(wiz.step<WIZ_PAGES.length-1){ wiz.step++; renderWizard(); return; }
+    /* 确认页点"进入游戏" → 真正开档 */
     try{
       const name=$('#inp-name').value.trim();
-      const pos=$('#sel-pos').value;
-      const ft=parseInt($('#sel-firsttouch').value,10)||0;
-      newGame(name,pos,ft);
-      const ca=calcCA(G);
-      G.potential=clamp(Math.round(ca)+ri(6,11)+(rnd()<0.12?3:0),10,20);
+      newGame(name,wiz.pos,wiz.origin,wiz.trait);
       trainDays=G.trainDays||3;
       startSeason();
       switchScreen('main');
       renderAll();
-      /* 存档：优先空栏位；已满则提示替换或放弃 */
       const slot=emptySlot();
       if(slot!=null){
         G.saveSlot=slot; saveGame(slot);
@@ -104,18 +143,66 @@ function bindCreate(){
       refreshMenuButtons();
     }catch(e){ toast('创建失败: '+e.message); }
   };
-  $('#btn-load').onclick=()=>openSlotLayer('load');
-  $('#btn-menu').onclick=returnToMenu;
 }
 
-/* 足球起点：随位置切换为对应职责（只显示职责名称） */
-function rebuildDutyOptions(){
-  const sel=$('#sel-firsttouch'); if(!sel) return;
-  const pos=($('#sel-pos')&&$('#sel-pos').value)||'前锋';
-  const list=FIRST_TOUCH_BY_POS[pos]||FIRST_TOUCH_BY_POS['前锋'];
-  const prev=parseInt(sel.value,10);
-  sel.innerHTML=list.map((d,i)=>`<option value="${i}">${d.t}</option>`).join('');
-  sel.value=(isNaN(prev)||prev>=list.length)?0:prev;
+function wizNextEnabled(){
+  if(wiz.step===0) return !!wiz.pos;
+  if(wiz.step===1) return !!wiz.origin;
+  if(wiz.step===2) return !!wiz.trait;
+  return true;   /* 确认页 */
+}
+
+function renderWizard(){
+  $('#wiz-step').textContent=`第 ${wiz.step+1} 步 / 共 ${WIZ_PAGES.length} 步 · ${STEP_LABELS[wiz.step]}`;
+  WIZ_PAGES.forEach((id,i)=>{ $('#'+id).classList.toggle('active',i===wiz.step); });
+  $('#wiz-next').disabled=!wizNextEnabled();
+  $('#wiz-next').textContent=wiz.step===WIZ_PAGES.length-1?'进入游戏':'下一步';
+  $('#wiz-back').textContent=wiz.step===0?'返回封面':'上一步';
+
+  if(wiz.step===1) renderOriginList();
+  if(wiz.step===2) renderTraitList();
+  if(wiz.step===3) renderConfirm();
+}
+
+function renderOriginList(){
+  const list=$('#origin-list');
+  list.innerHTML=ORIGIN_OPTIONS.map(o=>
+    `<button class="opt-box${o.id===wiz.origin?' active':''}" data-id="${o.id}">${o.name}</button>`).join('');
+  const sel=ORIGIN_OPTIONS.find(o=>o.id===wiz.origin);
+  $('#origin-desc').innerHTML=sel
+    ?`<b class="od-name">${sel.name}</b><p>${sel.desc}</p>`
+    :'<p class="muted-light">在左侧选择一个出身，这里会显示详细说明。</p>';
+}
+
+function renderTraitList(){
+  const list=$('#trait-list');
+  list.innerHTML=TRAIT_OPTIONS.map(t=>
+    `<button class="opt-box${t.id===wiz.trait?' active':''}" data-id="${t.id}">${t.name}</button>`).join('');
+  const sel=TRAIT_OPTIONS.find(t=>t.id===wiz.trait);
+  $('#trait-desc').innerHTML=sel
+    ?`<b class="od-name">${sel.name}</b><p>${sel.desc}</p>`
+    :'<p class="muted-light">在左侧选择一个特点，这里会显示详细说明。</p>';
+}
+
+function renderConfirm(){
+  /* 确认页先据当前选择预生成一次属性（每次进入重新随机，最终开档再生成一次） */
+  const name=$('#inp-name').value.trim();
+  const preview=newGame(name,wiz.pos,wiz.origin,wiz.trait);
+  const groups=ATTR_GROUPS_BY_POS[preview.position]||ATTR_GROUPS_BY_POS['中场'];
+  $('#confirm-card').innerHTML=`
+    <div class="cf-head">
+      <b>${preview.name}</b>
+      <span class="tag t2">${preview.position}</span>
+      <span class="cf-sub">${ORIGIN_OPTIONS.find(o=>o.id===preview.origin).name} · ${TRAIT_OPTIONS.find(t=>t.id===preview.trait).name}</span>
+    </div>
+    <div class="cf-club">${clubName(preview.clubTier,preview.clubIdx)} · ${tierName(preview.clubTier)}</div>
+    ${groups.map(g=>`
+      <div class="cf-group"><h4>${g.name}</h4>
+        <div class="cf-attrs">${g.keys.map(k=>`
+          <span class="cf-attr">${ATTR_LABEL[k]} <b>${preview.attr[k]}</b></span>`).join('')}
+        </div>
+      </div>`).join('')}
+    <p class="cf-note">属性已随机生成 · 点击「进入游戏」正式开始（将以本次属性为准）</p>`;
 }
 
 /* ---------- 存档槽 ---------- */
@@ -229,27 +316,68 @@ function bindActions(){
 
   $('#btn-train').onclick=()=>{
     const res=doTraining(trainCat,trainDays);
-    toast(res.msg);
-    if(res.ok) trainDays=G.trainDays;
-    renderAll(); saveGame();
+    if(res.ok){
+      trainDays=G.trainDays;
+      renderAll(); saveGame();
+      playTrainingCinematic(res.days,res.ups);
+    }else{
+      toast(res.msg);
+    }
   };
-  $('#btn-match').onclick=()=>playMatch(false);
+  $('#btn-match').onclick=()=>{
+    /* 未训练 → 先弹确认框，避免手滑带低状态出战 */
+    if(G && !G.retired && G.roundTrained!==viewRound && viewRound<fixtures.length){
+      openConfirm('还未进行训练，是否进入比赛？',()=>playMatch(false),{
+        sub:`第 ${viewRound+1} 轮 · ${fixtures[viewRound].home?'主场迎战':'客场挑战'} ${fixtures[viewRound].opp}`,
+        warn:`本周未安排训练 · 当前体能 ${Math.round(G.fitness)}% · 状态 ${Math.round(G.form*100)}%，
+未经训练直接出战，体能与状态都会拖累表现。`,
+        onNo:()=>openPanel('ov-train')
+      });
+      return;
+    }
+    playMatch(false);
+  };
   $('#btn-endseason').onclick=()=>endSeason();
 
-  /* 模拟下一场：未训练则按当前天数选择自动训练 */
+  /* 模拟下一场：未训练则默认按 3 天综合训练自动安排 */
   $('#btn-simweek').onclick=()=>{
     if(!G||G.retired) return;
     if(viewRound>=fixtures.length){ endSeason(); return; }
     let note='';
     if(G.roundTrained!==viewRound){
-      const catId=autoTrainCategory();
+      const catId='general';
       const cat=posTrainCats().find(c=>c.id===catId);
-      const r=doTraining(catId,trainDays);
-      if(r.ok && cat) note=`自动${cat.name} · ${trainDays}天`;
+      const r=doTraining(catId,3);
+      if(r.ok) note=`自动综合训练 · 3天`;
     }
     playMatch(true,note);
   };
 }
+
+/* ---------- 通用确认弹层 ---------- */
+function openConfirm(text,onYes,opts){
+  opts=opts||{};
+  $('#confirm-text').textContent=text;
+  $('#confirm-sub').textContent=opts.sub||'';
+  const warn=$('#confirm-warn');
+  if(opts.warn){
+    warn.style.display='flex';
+    $('#confirm-warn-text').textContent=opts.warn;
+  }else{
+    warn.style.display='none';
+  }
+  $('#confirm-layer').classList.add('show');
+  $('#confirm-yes').onclick=()=>{
+    $('#confirm-layer').classList.remove('show');
+    onYes();
+  };
+  $('#confirm-no').onclick=()=>{
+    $('#confirm-layer').classList.remove('show');
+    if(opts.onNo) opts.onNo();
+  };
+}
+
+/* ---------- 通用确认弹层结束 ---------- */
 
 /* ---------- 比赛流程 ---------- */
 function playMatch(auto,note){
@@ -272,7 +400,8 @@ function playMatch(auto,note){
   });
   if(G.matchLog.length>12) G.matchLog.shift();
   updateValue(G);
-  const unl=checkAchievements({match:m});
+  /* 每场比赛后检查：比赛成就 + 赛季进球成就（赛季中即时解锁） */
+  const unl=checkAchievements({match:m, season:true});
   saveGame();
 
   if(auto){
@@ -291,7 +420,7 @@ function endSeason(){
   if(!G||G.retired) return;
   while(viewRound<fixtures.length){
     const daysTrained=(G.roundTrained===viewRound)?(G.trainDays||0):0;
-    if(daysTrained<=0) doTraining(autoTrainCategory(),trainDays);
+    if(daysTrained<=0) doTraining('general',3);
     prepareMatchFitness();
     const fx=fixtures[viewRound];
     const m=simMatch(G,fx.opp,fx.home);
@@ -299,34 +428,109 @@ function endSeason(){
     applyWeekResult(m,days);
     viewRound++;
   }
+  /* 快照赛季进球后再推进赛季（advanceSeason 会清空 seasonStats） */
+  const seasonGoalsSnapshot=G.seasonStats?G.seasonStats.goals:0;
   const res=advanceSeason();
-  const unl=checkAchievements({season:true, trophy:res.summary.standing===1, promoted:res.summary.promoted});
+  const unl=checkAchievements({season:true, seasonGoals:seasonGoalsSnapshot,
+    trophy:res.summary.standing===1, promoted:res.summary.promoted});
   const s=res.summary;
-  const lines=[
-    `${s.club} · ${tierName(s.tier)} 赛季结算`,
-    `出场 ${s.apps} · 进球 ${s.goals} · 助攻 ${s.assists} · 场均评分 ${s.avgRating||'—'}`,
-    s.loanReturn?`租借期满，回归 ${s.parentClub}`:
-      s.standing===1?`联赛冠军！`:
-      s.standing<=3?`联赛第 ${s.standing} 名，获得奖牌`:
-      s.relegated?`联赛第 ${s.standing} 名，不幸降级…`:
-      `联赛第 ${s.standing} 名`,
-    s.promoted?`球队升级成功！`:'',
-    s.fateEvent==='upgrade'?`你的表现打动了高一级俱乐部，收到了求购报价！`:'',
-    s.fateEvent==='sell'?`球队决定出售 / 租借你，收到了报价！`:'',
-    `新赛季你的年龄：${s.age} 岁`,
-    ...unl.map(u=>`成就解锁：${u.name}`)
-  ].filter(Boolean);
   if(res.retired){
+    const lines=[
+      `${s.club} · ${tierName(s.tier)} 赛季结算`,
+      `出场 ${s.apps} · 进球 ${s.goals} · 助攻 ${s.assists} · 场均评分 ${s.avgRating||'—'}`,
+      `新赛季你的年龄：${s.age} 岁`,
+      ...unl.map(u=>`成就解锁：${u.name}`)
+    ];
     showRetire(lines);
-  } else {
-    /* startSeason 会清空 offers —— 先暂存命运/合同报价，开局后再放回 */
-    const pendingOffers=G.offers||[];
-    startSeason();
-    G.offers=pendingOffers;
-    showMatchLayer(lines,'赛季结算');
-    if(G.offers.length){ setTimeout(()=>showOffers(),600); }
+    saveGame(); renderAll();
+    return;
   }
-  saveGame(); renderAll();
+  /* startSeason 会清空 offers —— 先暂存，成绩单确认后再放回展示转会 */
+  const pendingOffers=G.offers||[];
+  startSeason();
+  G.offers=pendingOffers;
+  saveGame();
+  showSeasonReport(s,unl,pendingOffers);
+  renderAll();
+}
+
+/* ---------- 赛季成绩单（逐项落下 + D~S 分级，确认后再看转会） ---------- */
+const REPORT_ROWS=[
+  s=>({k:'出场次数', v:s.apps>0?s.apps+' 场':'0 场（枯坐板凳的一季）'}),
+  s=>({k:'进球',     v:s.goals+' 球'}),
+  s=>({k:'助攻',     v:s.assists+' 次'}),
+  s=>({k:'场均评分', v:s.avgRating?s.avgRating.toFixed(1):'—'}),
+  s=>({k:'联赛排名', v:s.standing===1?'冠军！':(s.standing+' 名')}),
+  s=>({k:'球队动向', v:s.loanReturn?'租借期满，回归 '+s.parentClub:
+        s.promoted?'升级成功！':s.relegated?'不幸降级…':'原地踏步'})
+];
+function seasonGrade(s){
+  /* 加权：场均评分 50% + 出场 30% + 荣誉 20% */
+  const apps=Math.min(s.apps/20,1);            /* 20 场 = 满额 */
+  const rating=clamp(((s.avgRating||5.5)-5.2)/2.2,0,1);  /* 5.2→0, 7.4→1 */
+  const honor=s.standing===1?1:s.standing<=3?0.7:s.promoted?0.6:s.relegated?0:0.2;
+  const score=rating*0.5+apps*0.3+honor*0.2;
+  if(score>=0.85) return {g:'S',note:'传奇一季！你就是这支球队的心脏。',cls:'gr-s'};
+  if(score>=0.68) return {g:'A',note:'出色的表现，球迷为你起立鼓掌。',cls:'gr-a'};
+  if(score>=0.5)  return {g:'B',note:'稳健的赛季，教练组对你表示认可。',cls:'gr-b'};
+  if(score>=0.32) return {g:'C',note:'表现平平，下赛季需要拿出更多东西。',cls:'gr-c'};
+  return {g:'D',note:'艰难的一季……外界开始质疑你的能力。',cls:'gr-d'};
+}
+function showSeasonReport(s,unl,pendingOffers){
+  const token=trainCineToken();   /* 复用动画令牌防重入 */
+  $('#rp-title').textContent=s.season+' 赛季 · '+s.club;
+  $('#rp-sub').textContent=tierName(s.tier)+' · '+s.age+' 岁 · 第 '+G.season+' 赛季生涯';
+  const rows=$('#rp-rows'); rows.innerHTML='';
+  REPORT_ROWS.forEach(f=>{
+    const d=f(s);
+    const row=document.createElement('div');
+    row.className='rp-row';
+    row.innerHTML=`<span class="rp-k">${d.k}</span><b class="rp-v">${d.v}</b>`;
+    rows.appendChild(row);
+  });
+  const unlRow=unl.length?unl.map(u=>u.name).join(' · '):'';
+  if(unlRow){
+    const row=document.createElement('div');
+    row.className='rp-row rp-achv';
+    row.innerHTML=`<span class="rp-k">成就解锁</span><b class="rp-v">${unlRow}</b>`;
+    rows.appendChild(row);
+  }
+  const grade=seasonGrade(s);
+  const gEl=$('#rp-grade');
+  gEl.textContent='—';
+  gEl.className='rp-grade '+grade.cls;
+  $('#rp-grade-note').textContent='';
+  $('#rp-confirm').style.visibility='hidden';
+  $('#report-layer').classList.add('show');
+
+  /* 逐项落下 → 最后砸出评级 */
+  (async()=>{
+    const items=rows.querySelectorAll('.rp-row');
+    for(const it of items){
+      if(token!==trainCineToken.n) return;
+      await wait(240);
+      it.classList.add('dropped');
+    }
+    await wait(350);
+    if(token!==trainCineToken.n) return;
+    gEl.classList.add('slammed');
+    gEl.textContent=grade.g;
+    $('#rp-grade-note').textContent=grade.note;
+    await wait(500);
+    if(token!==trainCineToken.n) return;
+    $('#rp-confirm').style.visibility='visible';
+  })();
+
+  $('#rp-confirm').onclick=()=>{
+    if(token!==trainCineToken.n) return;
+    $('#report-layer').classList.remove('show');
+    const lines=[
+      G.offers.length?`你收到了 ${G.offers.length} 份新报价，点击下方查看。`:'暂无转会动向，专注新赛季吧。'
+    ];
+    if(G.offers.length){ showOffers(); }
+    else{ toast('开启 '+G.season+' 赛季！'); }
+    renderAll(); saveGame();
+  };
 }
 
 function showRetire(baseLines){
@@ -365,7 +569,7 @@ function showOffers(){
       <div class="offer-club">${o.club} <span class="tag t${o.tier}">${tierName(o.tier)}</span></div>
       ${row}`;
     const b=document.createElement('button');
-    b.className='btn small'; b.style.cssText='background:var(--green);color:#fff';
+    b.className='btn small'; b.style.cssText='background:var(--grass);color:#fff';
     b.textContent=info.accept;
     b.onclick=()=>{
       acceptOffer(i);
@@ -375,7 +579,7 @@ function showOffers(){
       renderAll(); saveGame();
     };
     const stay=document.createElement('button');
-    stay.className='btn small'; stay.style.cssText='background:#e5e7eb;color:#333';
+    stay.className='btn small'; stay.style.cssText='background:var(--bg);color:var(--ink)';
     stay.textContent=info.stay;
     stay.onclick=()=>{
       G.offers=[]; G.contractYears=Math.max(G.contractYears,1);
@@ -421,7 +625,7 @@ function renderTop(){
   $('#v-age').textContent=G.age+' 岁';
   $('#v-club').textContent=`${clubName(G.clubTier,G.clubIdx)} · ${tierName(G.clubTier)}`;
   $('#v-ca').textContent=starsText(caStars(calcCA(G)));
-  $('#v-value').textContent='€'+G.marketValue+'万';
+  $('#v-value').textContent='€'+(G.marketValue>=10000?(G.marketValue/10000).toFixed(1)+'亿':G.marketValue+'万');
   const rep=$('#v-rep');
   rep.textContent=repLabel(G.rep);
   rep.className=repClass(G.rep);
@@ -532,17 +736,13 @@ function renderTrainUI(){
   const cat=cats.find(c=>c.id===trainCat)||cats[0];
   const days=trainDays;
   const restDays=WEEK_DAYS-days;
-  const cost=Math.round(cat.cost*TRAIN_COST_PER_DAY_MUL*days);
-  const recover=FIT_RECOVER_PER_DAY*restDays;
-  const after=clamp(G.fitness+recover-cost,0,100);
-  const mul=dayXpMul(days);
+  const after=clamp(G.fitness+FIT_RECOVER_TRAIN_DAY*days+FIT_RECOVER_REST_DAY*restDays,0,100);
   const keys=ATTRS_BY_POS[G.position]||[];
   const focus=(TRAIN_FOCUS[cat.id]||[]).filter(k=>keys.indexOf(k)>=0);
   const focusTxt=focus.length?focus.map(k=>ATTR_LABEL[k]+'++').join('  '):'全属性+';
   const box=$('#train-preview');
-  box.innerHTML=`<b>（${cat.name}）</b>${focusTxt}<br>
-    训练 ${days} 天 / 休息 ${restDays} 天 · 体能 ${Math.round(G.fitness)} → <b>${Math.round(after)}</b> · 成长 ×${days>0?`<b>${fmt1(mul)}</b>`:'0'} · 学习 ×<b>${fmt1(learnMul(G))}</b> · 状态 +${Math.round(FORM_TRAIN_DAY*days*100)}%
-    ${after<30?'<br><span class="warn">赛后体能偏低，比赛发挥会受影响。</span>':''}`;
+  box.innerHTML=`<div class="tp-focus">${focusTxt}</div>
+    <div class="tp-fit"><span class="tp-label">预期体能</span><b>${Math.round(G.fitness)}% → ${Math.round(after)}%</b>${after<30?'<span class="warn"> · 赛后体能偏低</span>':''}</div>`;
 
   const done=G.roundTrained===viewRound;
   const over=viewRound>=fixtures.length;
@@ -640,6 +840,7 @@ function startMatchPlayback(m,fx,roundNo,ups,unl){
   matchState={m,fx,roundNo,ups,unl,playing:true};
   $('#match-title').textContent=`第 ${roundNo} 轮 · ${fx.home?'主场':'客场'} vs ${fx.opp}`;
   $('#match-hud').style.display='flex';
+  $('#match-hud').classList.remove('hud-hidden');
   $('#mh-teams').textContent=`${fx.home?clubName(G.clubTier,G.clubIdx):fx.opp} vs ${fx.home?fx.opp:clubName(G.clubTier,G.clubIdx)}`;
   setHud(0,[0,0],m.startRating||6.0);
   const body=$('#match-lines');
@@ -727,7 +928,8 @@ async function renderBeat(b,token){
     </div>`);
     await wait(1500);
   } else if(b.type==='bg'){
-    setHud(b.minute,b.score,matchState.m.rating);
+    /* 用实时评分（b.rating），不能取 m.rating（全场最终值含赛果加成，会先显示终点分） */
+    setHud(b.minute,b.score,(typeof b.rating==='number')?b.rating:null);
     stage(`<div class="stage center">
       <div class="minute-tag">${b.minute}'</div>
       <div class="scene-text">${b.text}</div>
@@ -769,6 +971,7 @@ function renderNotPlayed(m){
   const fx=matchState.fx;
   const home=fx.home?clubName(G.clubTier,G.clubIdx):fx.opp;
   const away=fx.home?fx.opp:clubName(G.clubTier,G.clubIdx);
+  $('#match-hud').classList.add('hud-hidden');
   setHud(90,m.score,6.0);
   stage(`<div class="stage center">
     <div class="result-kicker">本场比赛你并未上场</div>
@@ -790,6 +993,8 @@ function renderFinal(m){
     ...(matchState.ups||[]).map(u=>`通用成长：${ATTR_LABEL[u.k]}升至 ${u.level} 级`),
     ...(matchState.unl||[]).map(u=>`成就解锁：${u.name}`)
   ];
+  /* 全场结束：顶部 HUD（时间/比分/评分）向上收起，只展示下方数据汇总 */
+  $('#match-hud').classList.add('hud-hidden');
   setHud(90,m.score,m.rating);
   stage(`<div class="stage center">
     <div class="final-card ${m.win?'win':m.draw?'draw':'loss'}">
@@ -849,4 +1054,86 @@ function toast(msg){
   const t=$('#toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>t.classList.remove('show'),3200);
+}
+
+/* ============================================================
+   训练过场动画
+   点击"开始训练"后播放：训练 + 休息逐日推进，日期后移，
+   训练日白字 / 休息日蓝字 / 比赛日红字，动态省略号，播放完自动关闭。
+   文案与训练类别对应（data.js TRAIN_CINE_TEXTS）。
+   ============================================================ */
+/* 训练/休息穿插排布：全练或全休只有一种；其余交替穿插 */
+function buildWeekSchedule(days){
+  const arr=[];
+  for(let t=days,r=WEEK_DAYS-days;t>0||r>0;){
+    if(t>0){ arr.push('train'); t--; }
+    if(r>0){ arr.push('rest'); r--; }
+  }
+  return arr;
+}
+
+function trainCineToken(){ return trainCineToken.n=(trainCineToken.n||0)+1; }
+
+async function playTrainingCinematic(days,ups){
+  const token=trainCineToken();
+  const layer=$('#train-cine');
+  const list=$('#tc-lines');
+  layer.classList.add('show');
+  $('#ov-train').classList.remove('show');   /* 关闭训练面板，突出过场 */
+  list.innerHTML='';
+
+  const sched=buildWeekSchedule(days);
+  const dayNames=['周一','周二','周三','周四','周五','周六'];
+  const cat=(posTrainCats().find(c=>c.id===trainCat)||posTrainCats()[0]);
+  const trainTexts=TRAIN_CINE_TEXTS[cat.id]||TRAIN_CINE_TEXTS.general;
+  const items=[];
+  let ti=0;
+  sched.forEach((kind,i)=>{
+    items.push({
+      kind, day:dayNames[i],
+      text:kind==='train'?trainTexts[ti++%trainTexts.length]:pick(REST_CINE_TEXTS)
+    });
+  });
+  items.push({kind:'match',day:'比赛日',text:'比赛日即将到来'});
+
+  const fit0=Math.round(G.fitness);
+  const fitAfter=fit0+Math.round(FIT_RECOVER_TRAIN_DAY*days)+FIT_RECOVER_REST_DAY*(WEEK_DAYS-days);
+  $('#tc-title').textContent=`第 ${viewRound+1} 轮 · ${days>0?cat.name:'全周休整'}`;
+  $('#tc-fit').innerHTML=`体能 <b>${fit0}%</b> → <b>${clamp(fitAfter,0,100)}%</b>`;
+
+  for(let i=0;i<items.length;i++){
+    if(token!==trainCineToken.n) return;
+    const it=items[i];
+    const row=document.createElement('div');
+    row.className=`tc-line tc-${it.kind}`;
+    const dot=it.kind==='match'
+      ?`<span class="tc-dot"></span>`
+      :`<span class="tc-ellipsis"><i></i><i></i><i></i></span>`;
+    row.innerHTML=`<span class="tc-day">${it.day}</span>
+      <span class="tc-text">${it.text}</span>${dot}`;
+    list.appendChild(row);
+    /* 保持滚动到底部，营造逐日后移感 */
+    const body=$('#tc-body'); body.scrollTop=body.scrollHeight;
+    await wait(it.kind==='match'?900:620);
+    if(token!==trainCineToken.n) return;
+    row.classList.add('done');
+    const dotEl=row.querySelector('.tc-ellipsis'); if(dotEl) dotEl.remove();
+  }
+
+  /* 成长提示 */
+  if(ups&&ups.length){
+    const row=document.createElement('div');
+    row.className='tc-line tc-up';
+    row.innerHTML=`<span class="tc-day">成长</span>
+      <span class="tc-text">${ups.map(u=>`${ATTR_LABEL[u.k]} → ${u.level}`).join(' · ')}</span>`;
+    list.appendChild(row);
+    const body=$('#tc-body'); body.scrollTop=body.scrollHeight;
+    await wait(1100);
+    if(token!==trainCineToken.n) return;
+  }
+
+  await wait(400);
+  if(token!==trainCineToken.n) return;
+  layer.classList.remove('show');
+  renderAll();
 }
